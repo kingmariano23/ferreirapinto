@@ -10,11 +10,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { brand } from './brand.config.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const RUNTIME_DIR = path.join(ROOT, '.sabec-runtime');
 const PORT = Number(process.env.SABEC_PORT || 7777);
 const IS_WIN = process.platform === 'win32';
+
+// ============================================================
+// Brand: substitui placeholders {{BRAND_*}} no HTML antes de servir
+// ============================================================
+function renderBrand(html) {
+  return html
+    .replaceAll('{{BRAND_NAME}}',      brand.name)
+    .replaceAll('{{BRAND_TITLE}}',     brand.title)
+    .replaceAll('{{BRAND_AUTHORS}}',   brand.authors)
+    .replaceAll('{{BRAND_MARK_HTML}}', brand.markHtml)
+    .replaceAll('{{BRAND_WELCOME}}',   brand.welcome);
+}
 
 // ============================================================
 // Bootstrap: garante o Claude Code instalado localmente
@@ -481,8 +494,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/' || p === '/index.html') {
       const file = path.join(ROOT, 'sabec-ui.html');
       if (!fs.existsSync(file)) return text(res, 404, 'sabec-ui.html não encontrado');
+      const html = renderBrand(fs.readFileSync(file, 'utf8'));
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return fs.createReadStream(file).pipe(res);
+      return res.end(html);
     }
 
     if (p === '/api/state' && req.method === 'GET') return handleState(req, res);
@@ -504,7 +518,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n  Sabec/Os painel`);
+  console.log(`\n  ${brand.consoleLabel}`);
   console.log(`  → http://localhost:${PORT}\n`);
 });
 

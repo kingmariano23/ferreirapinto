@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sabec/Os — Painel</title>
+<title>{{BRAND_TITLE}}</title>
 <link rel="icon" id="favicon" type="image/svg+xml" href="/api/file?path=identidade/logo.svg">
 <link rel="shortcut icon" id="favicon-shortcut" type="image/svg+xml" href="/api/file?path=identidade/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1656,9 +1656,9 @@
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="authors">feito por Diogo Sabec</div>
+      <div class="authors">{{BRAND_AUTHORS}}</div>
       <div class="brand-logo" id="brand-logo"><img id="brand-logo-img" alt=""></div>
-      <div class="mark">Sabec<span class="slash">/</span><span class="os">OS</span></div>
+      <div class="mark">{{BRAND_MARK_HTML}}</div>
       <div class="tag" id="brand-tag">Painel</div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -1672,7 +1672,7 @@
   <main class="main">
     <header class="topbar">
       <div>
-        <div class="crumb" id="crumb">Sabec/Os</div>
+        <div class="crumb" id="crumb">{{BRAND_NAME}}</div>
         <h1 id="page-title">Carregando…</h1>
       </div>
       <div class="actions" id="topbar-actions"></div>
@@ -1731,7 +1731,7 @@ const NAV = [
 ];
 
 const SKILLS = [
-  { id: 'instalar',    cat: 'NÚCLEO',     title: 'Instalar Sabec/Os',       cmd: '/instalar',
+  { id: 'instalar',    cat: 'NÚCLEO',     title: 'Instalar {{BRAND_NAME}}',       cmd: '/instalar',
     desc: 'Entrevista guiada que preenche empresa, preferências, estratégia e identidade visual.', form: 'none' },
   { id: 'abrir',       cat: 'NÚCLEO',     title: 'Abrir sessão',          cmd: '/abrir',
     desc: 'Carrega a memória do negócio e devolve um resumo do que importa hoje.', form: 'none' },
@@ -2114,7 +2114,7 @@ async function editSlide(item, slideIdx, pedido) {
   paintSlideBusy(slideIdx, true);
   paintSlideStatus(slideIdx, 'rodando · 0s');
 
-  const prompt = `Edite UM ÚNICO slide específico de um carrossel do Sabec/Os.
+  const prompt = `Edite UM ÚNICO slide específico de um carrossel do {{BRAND_NAME}}.
 
 Post: ${item.name}
 Pasta do post: ${getActiveFolder(item) || ''}
@@ -2254,7 +2254,7 @@ async function boot() {
     document.getElementById('content').innerHTML = `
       <div class="empty">
         <div class="lead">Servidor <span class="red">offline</span></div>
-        <p>Não consegui falar com o servidor do Sabec/Os. Confira se o <strong>sabec-server.mjs</strong> está rodando.</p>
+        <p>Não consegui falar com o servidor do {{BRAND_NAME}}. Confira se o <strong>sabec-server.mjs</strong> está rodando.</p>
         <p style="font-size: 13px; color: var(--ink-muted);">Detalhe técnico: ${escapeHtml(String(e.message))}</p>
       </div>
     `;
@@ -2481,7 +2481,7 @@ function setTopbar(crumb, title, actionsHTML = '') {
    Render: Hoje
    ============================================================ */
 function renderHoje() {
-  setTopbar(state.business.name || 'Sabec/Os', 'Hoje',
+  setTopbar(state.business.name || '{{BRAND_NAME}}', 'Hoje',
     `<button class="btn btn-secondary" id="btn-guide">Primeiros passos</button>
      <button class="btn btn-secondary" id="btn-refresh">Atualizar</button>`);
   const c = document.getElementById('content');
@@ -2537,7 +2537,7 @@ function renderHoje() {
       </div>
     </div>` : `
     <div class="section-head">
-      <h2>Bem-vindo ao Sabec/Os</h2>
+      <h2>{{BRAND_WELCOME}}</h2>
       <p>O sistema ainda não conhece seu negócio. Clique em <strong>Primeiros passos</strong> no topo pra ver o roteiro de setup.</p>
     </div>`;
 
@@ -2682,7 +2682,7 @@ function renderMemoryPage(key, crumb, title, subtitle) {
    Render: Identidade
    ============================================================ */
 function renderIdentidade() {
-  setTopbar(state.business.name || 'Sabec/Os', 'Identidade',
+  setTopbar(state.business.name || '{{BRAND_NAME}}', 'Identidade',
     `<button class="btn btn-secondary" data-act="edit-id">Editar guia</button>`);
   const c = document.getElementById('content');
   const md = state.identidade;
@@ -2917,7 +2917,7 @@ async function syncDesignGuideLogo(logoExists, originalFilename) {
   const newBlock = logoExists
     ? `## Logo
 
-- **Arquivo:** \`identidade/logo.svg\` — versão vetorial principal, enviada via painel Sabec/Os em ${date}${filenameHint}
+- **Arquivo:** \`identidade/logo.svg\` — versão vetorial principal, enviada via painel {{BRAND_NAME}} em ${date}${filenameHint}
 - **Versão pra fundo escuro:** *(a definir)*
 - **Onde usar:** header de propostas, slide final de carrossel (CTA), assinatura de e-mail, marca d'água em fichas de produto
 - **Tamanho sugerido:** largura entre 120-200px nos HTMLs`
@@ -3029,7 +3029,7 @@ const CHAT_QUICK = [
 ];
 
 function renderChat() {
-  setTopbar(state.business.name || 'Sabec/Os', 'Chat');
+  setTopbar(state.business.name || '{{BRAND_NAME}}', 'Chat');
   const c = document.getElementById('content');
   const turns = state.chat.turns;
 
