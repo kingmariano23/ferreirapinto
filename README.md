@@ -3,22 +3,9 @@
 > Espelho público de um sistema operacional pra solopreneurs e marcas pessoais.
 > Roda 100% local, navegador como interface, Claude Code como motor.
 
-## A cadeia
+## Origem
 
-```
-   Vagner Mazzeo (criador original)
-   github.com/mazzeoia/MazyOS
-                ▲
-                │ fork
-   Diogo Sabec — desenvolvimento privado
-   github.com/DiogoSabec/sabec-os
-                │ mirror público
-                ▼
-   MazyUI (este repo)
-   github.com/DiogoSabec/MazyUI
-```
-
-Este repositório (`MazyUI`) é o espelho público de [`sabec-os`](https://github.com/DiogoSabec/sabec-os) — o desenvolvimento principal acontece lá, em privado. O `MazyUI` carrega o mesmo motor mas com a marca **MazyUI** (em homenagem ao [MazyOS original](https://github.com/mazzeoia/MazyOS) de Vagner Mazzeo).
+Este repositório é um fork do [MazyOS](https://github.com/mazzeoia/MazyOS) original, criado por [Vagner Mazzeo](https://mazzeoia.com.br). O nome **MazyUI** é uma homenagem ao projeto original.
 
 ## O que faz
 
@@ -64,4 +51,3 @@ O sistema usa `brand.config.js` pra controlar nome, autores, título, etc. Edita
 ## Créditos
 
 - **MazyOS original:** [Vagner Mazzeo](https://mazzeoia.com.br) — [mazzeoia/MazyOS](https://github.com/mazzeoia/MazyOS)
-- **Desenvolvimento atual:** [Diogo Sabec](https://github.com/DiogoSabec) — [DiogoSabec/sabec-os](https://github.com/DiogoSabec/sabec-os) (privado)
