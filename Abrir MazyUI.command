@@ -1,7 +1,7 @@
 #!/bin/bash
-# Abre o painel do Sabec/Os — sobe o servidor local e abre o navegador.
+# Abre o painel do MazyUI — sobe o servidor local e abre o navegador.
 # Duplo-clique no Finder executa esse arquivo no Terminal (extensão .command).
-# Na primeira vez, dar permissão de execução: chmod +x "Abrir sabecOS.command"
+# Na primeira vez, dar permissão de execução: chmod +x "Abrir MazyUI.command"
 
 set -e
 cd "$(dirname "$0")"
@@ -15,7 +15,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 # Sobe o servidor em background
-node sabec-server.mjs >/tmp/sabec.log 2>&1 &
+node mazyui-server.mjs >/tmp/mazyui.log 2>&1 &
 SERVER_PID=$!
 
 # Espera o servidor responder antes de abrir o browser (até 60s)
@@ -33,8 +33,8 @@ open "http://localhost:7777/"
 # Mantém o terminal vivo enquanto o servidor roda; Cmd+W fecha a janela mas
 # o servidor segue (basta usar o botão "Desligar" no painel pra parar).
 echo
-echo "Sabec/Os rodando em http://localhost:7777/"
-echo "Logs em /tmp/sabec.log"
+echo "MazyUI rodando em http://localhost:7777/"
+echo "Logs em /tmp/mazyui.log"
 echo "Servidor PID: $SERVER_PID"
 echo
 echo "Pra desligar: use o botão no painel, ou rode: kill $SERVER_PID"

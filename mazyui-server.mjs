@@ -1,8 +1,8 @@
 // ============================================================
-// Sabec/Os painel — servidor local
+// MazyUI painel — servidor local
 //   - Serve a UI estática
 //   - Lê/grava os arquivos do workspace
-//   - Spawna o Claude Code (instalado localmente em .sabec-runtime)
+//   - Spawna o Claude Code (instalado localmente em .mazyui-runtime)
 //     com streaming JSON e devolve via SSE
 // ============================================================
 import http from 'node:http';
@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { brand } from './brand.config.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const RUNTIME_DIR = path.join(ROOT, '.sabec-runtime');
-const PORT = Number(process.env.SABEC_PORT || 7777);
+const RUNTIME_DIR = path.join(ROOT, '.mazyui-runtime');
+const PORT = Number(process.env.MAZYUI_PORT || 7777);
 const IS_WIN = process.platform === 'win32';
 
 // ============================================================
@@ -49,12 +49,12 @@ async function ensureClaudeCode() {
   let entry = resolveClaudeEntry();
   if (entry) return entry;
 
-  console.log('[sabec] Primeira execução — instalando Claude Code localmente…');
+  console.log('[mazyui] Primeira execução — instalando Claude Code localmente…');
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   const pkgPath = path.join(RUNTIME_DIR, 'package.json');
   if (!fs.existsSync(pkgPath)) {
     fs.writeFileSync(pkgPath, JSON.stringify({
-      name: 'sabec-runtime',
+      name: 'mazyui-runtime',
       private: true,
       version: '0.0.1',
     }, null, 2));
@@ -71,7 +71,7 @@ async function ensureClaudeCode() {
   });
   entry = resolveClaudeEntry();
   if (!entry) throw new Error('Claude Code instalou mas o entry JS não foi encontrado em ' + RUNTIME_DIR);
-  console.log('[sabec] Pronto.');
+  console.log('[mazyui] Pronto.');
   return entry;
 }
 
@@ -365,10 +365,10 @@ function handleShutdown(req, res) {
 
 function handleRestart(req, res) {
   // Dispara um cmd/sh em background que aguarda 2s (tempo do processo atual
-  // sair + liberar a porta) e então sobe um novo `node sabec-server.mjs`.
+  // sair + liberar a porta) e então sobe um novo `node mazyui-server.mjs`.
   // Em seguida mata o processo atual.
   try {
-    const serverFile = path.join(ROOT, 'sabec-server.mjs');
+    const serverFile = path.join(ROOT, 'mazyui-server.mjs');
     if (IS_WIN) {
       // `start "" /min cmd /c ...` desanexa de vez do processo pai
       const cmdLine = `start "" /min cmd /c "timeout /t 2 /nobreak >nul & cd /d "${ROOT}" & node "${serverFile}""`;
@@ -492,8 +492,8 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (p === '/' || p === '/index.html') {
-      const file = path.join(ROOT, 'sabec-ui.html');
-      if (!fs.existsSync(file)) return text(res, 404, 'sabec-ui.html não encontrado');
+      const file = path.join(ROOT, 'mazyui-ui.html');
+      if (!fs.existsSync(file)) return text(res, 404, 'mazyui-ui.html não encontrado');
       const html = renderBrand(fs.readFileSync(file, 'utf8'));
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(html);

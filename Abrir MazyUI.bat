@@ -1,5 +1,5 @@
 @echo off
-REM Abre o painel do Sabec/Os — sobe o servidor local e abre o navegador.
+REM Abre o painel do MazyUI — sobe o servidor local e abre o navegador.
 setlocal
 cd /d "%~dp0"
 
@@ -13,7 +13,7 @@ if errorlevel 1 (
 )
 
 REM Sobe o servidor em background, minimizado
-start "Sabec/Os" /min cmd /c "node sabec-server.mjs"
+start "MazyUI" /min cmd /c "node mazyui-server.mjs"
 
 REM Espera o servidor responder antes de abrir o browser
 set /a tries=0

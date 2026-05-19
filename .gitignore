@@ -16,7 +16,7 @@ Thumbs.db
 
 # Dependências
 node_modules/
-.sabec-runtime/
+.mazyui-runtime/
 
 # Arquivos temporários
 *.log
