@@ -9,6 +9,35 @@ final dessa página com as regras específicas do seu negócio.
 
 ---
 
+## ⚠️ Regra inviolável — extensões de cliente vão em `local-*`
+
+Quando o usuário pedir uma feature nova que envolve **UI** ou **endpoint
+de servidor** (ex: "sincroniza a UI com o CSV", "adiciona painel de
+agenda", "cria um endpoint pra exportar dados"), o código novo vai
+**SEMPRE** em:
+
+- **Servidor:** `local-routes.mjs` (via `register({ helpers, addRoute })`)
+- **UI:** `local-ui.js` (via `window.Sabec.registerPanel(def)`)
+
+**NUNCA edite `mazyui-server.mjs` ou `mazyui-ui.html` direto pra adicionar
+feature de cliente.** Esses arquivos são reescritos pelo `/atualizar-sistema`
+— qualquer feature colada neles vira lixo no próximo update. Esse erro
+já aconteceu (e já fez cliente perder código).
+
+Antes de mexer em qualquer arquivo de UI/servidor, faça o teste mental:
+
+> "Isso é feature universal pro MazyUI (vai pro repo central) ou é
+>  específico desse cliente (vai pra `local-*`)?"
+
+Se é específico do cliente → `local-*`. Se é universal → contribua pro
+repo central em `github.com/DiogoSabec/sabec-os` em vez de hackear no
+cliente.
+
+Detalhes completos da API dos hooks `local-*` estão na seção
+"Extensões locais por cliente" mais abaixo.
+
+---
+
 ## Contexto do negócio
 
 No início de toda conversa, ler os seguintes arquivos (quando existirem
