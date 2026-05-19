@@ -757,10 +757,85 @@
     font-size: 14px;
     line-height: 1.6;
     color: var(--ink);
-    white-space: pre-wrap;
   }
   .run-event.text { padding: 0; }
   .run-event.text .ev-ico { display: none; }
+  /* Markdown nativo no chat — títulos comedidos pra não estourar o bubble */
+  .run-event.text .ev-body > *:first-child { margin-top: 0; }
+  .run-event.text .ev-body > *:last-child { margin-bottom: 0; }
+  .run-event.text .ev-body h1,
+  .run-event.text .ev-body h2,
+  .run-event.text .ev-body h3,
+  .run-event.text .ev-body h4,
+  .run-event.text .ev-body h5,
+  .run-event.text .ev-body h6 {
+    font-family: var(--syne);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--ink);
+    margin: 14px 0 6px;
+  }
+  .run-event.text .ev-body h1 { font-size: 17px; }
+  .run-event.text .ev-body h2 { font-size: 15.5px; }
+  .run-event.text .ev-body h3 { font-size: 14.5px; }
+  .run-event.text .ev-body h4,
+  .run-event.text .ev-body h5,
+  .run-event.text .ev-body h6 { font-size: 14px; }
+  .run-event.text .ev-body p { margin: 0 0 8px; }
+  .run-event.text .ev-body ul,
+  .run-event.text .ev-body ol { margin: 6px 0 8px; padding-left: 20px; }
+  .run-event.text .ev-body li { margin: 2px 0; }
+  .run-event.text .ev-body strong { font-weight: 700; color: var(--ink); }
+  .run-event.text .ev-body em { font-style: italic; }
+  .run-event.text .ev-body code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--paper-3);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .run-event.text .ev-body pre {
+    background: var(--paper-3);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .run-event.text .ev-body pre code {
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+  }
+  .run-event.text .ev-body blockquote {
+    margin: 8px 0;
+    padding: 4px 0 4px 12px;
+    border-left: 2px solid var(--line);
+    color: var(--ink-muted);
+  }
+  .run-event.text .ev-body hr {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 14px 0;
+  }
+  .run-event.text .ev-body a {
+    color: var(--red);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .run-event.text .ev-body table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .run-event.text .ev-body th,
+  .run-event.text .ev-body td {
+    border: 1px solid var(--line);
+    padding: 4px 8px;
+    text-align: left;
+  }
   .run-cost {
     font-family: var(--mono);
     font-size: 11px;
@@ -3341,7 +3416,7 @@ function renderTurnHTML(turn) {
       <div class="turn-body">
         <div class="run-log" id="log-${turn.id}">
           ${turn.events.map(ev => ev.kind === 'text'
-            ? `<div class="run-event text"><div class="ev-ico"></div><div class="ev-body">${escapeHtml(ev.text)}</div></div>`
+            ? `<div class="run-event text"><div class="ev-ico"></div><div class="ev-body">${renderChatMarkdown(ev.text)}</div></div>`
             : `<div class="run-event ${ev.kind || ''}"><div class="ev-ico">${escapeHtml(ev.ico || '·')}</div><div class="ev-body"><div class="ev-title">${escapeHtml(ev.title || '')}</div>${ev.detail ? `<div class="ev-detail">${escapeHtml(ev.detail)}</div>` : ''}</div></div>`
           ).join('')}
           ${turn.events.length === 0 ? '<div class="run-empty">Iniciando…</div>' : ''}
@@ -3888,7 +3963,10 @@ function appendTextToTurn(turn, text) {
   const allEvents = log.querySelectorAll('.run-event');
   const reallyLast = allEvents[allEvents.length - 1];
   if (lastText && lastText === reallyLast) {
-    lastText.querySelector('.ev-body').textContent += text;
+    // Re-render markdown a partir do texto acumulado em `last.text`
+    // (a concatenação já aconteceu acima). Isso garante que blocos
+    // que só "fecham" no fim do stream apareçam corretamente.
+    lastText.querySelector('.ev-body').innerHTML = renderChatMarkdown(last.text);
   } else {
     log.appendChild(renderTextEl(text));
   }
@@ -3910,8 +3988,22 @@ function renderEventEl(ev) {
 function renderTextEl(text) {
   const el = document.createElement('div');
   el.className = 'run-event text';
-  el.innerHTML = `<div class="ev-ico"></div><div class="ev-body">${escapeHtml(text)}</div>`;
+  el.innerHTML = `<div class="ev-ico"></div><div class="ev-body">${renderChatMarkdown(text)}</div>`;
   return el;
+}
+
+/* Renderiza markdown nativo nas bolhas de chat. Falha graciosamente:
+   se marked não estiver carregado, mostra escapado em <pre>. */
+function renderChatMarkdown(text) {
+  const src = text == null ? '' : String(text);
+  if (typeof marked === 'undefined' || !marked.parse) {
+    return `<pre style="margin:0;white-space:pre-wrap;font-family:inherit">${escapeHtml(src)}</pre>`;
+  }
+  try {
+    return marked.parse(src, { breaks: true, gfm: true });
+  } catch {
+    return escapeHtml(src);
+  }
 }
 
 function updateTurnDOM(turn) {
