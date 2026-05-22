@@ -1030,6 +1030,57 @@
     object-fit: cover;
     display: block;
   }
+  /* Slide HTML — iframe na resolução nativa (1080×1350 etc) escalado
+     via CSS pra caber no viewport do lightbox. Mantém vetorial e
+     atualiza em tempo real ao recarregar a src. */
+  .ig-slide-iframe-wrap {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #fafafa;
+  }
+  .ig-slide-iframe {
+    position: absolute;
+    top: 0; left: 0;
+    border: 0;
+    transform-origin: top left;
+    pointer-events: none;
+    background: #fafafa;
+  }
+  .lb-render-bar {
+    display: flex;
+    gap: 8px;
+    margin: 14px 0 4px;
+  }
+  .lb-render-bar button {
+    flex: 1;
+    background: rgba(245,240,232,0.08);
+    border: 1px solid rgba(245,240,232,0.22);
+    color: var(--paper);
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font: 12px/1.2 var(--sans);
+    letter-spacing: 0.04em;
+  }
+  .lb-render-bar button:hover { background: rgba(245,240,232,0.16); }
+  .lb-render-bar button:disabled { opacity: 0.5; cursor: progress; }
+  .lb-render-bar button.primary {
+    background: var(--paper);
+    color: var(--ink);
+    border-color: var(--paper);
+    font-weight: 600;
+    flex: 2;
+  }
+  .lb-render-bar button.primary:hover { background: #fff; }
+  .lb-render-bar button.primary:disabled { background: rgba(245,240,232,0.5); }
+  .lb-render-progress {
+    font: 11px/1.4 var(--mono);
+    color: rgba(245,240,232,0.6);
+    margin-top: 4px;
+    min-height: 16px;
+  }
   .ig-counter {
     position: absolute;
     top: 10px; right: 10px;
@@ -1802,4 +1853,111 @@
     .sidebar { position: static; height: auto; }
     .today-grid { grid-template-columns: 1fr; }
     .topbar, .content { padding-left: 20px; padding-right: 20px; }
+  }
+
+  /* Menu de contexto em itens da biblioteca (botão ··· no canto da capa) */
+  .lib-card { position: relative; }
+  .lib-menu-trigger {
+    position: absolute;
+    top: 10px; right: 10px;
+    z-index: 2;
+    width: 32px; height: 32px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: 0; border-radius: 999px;
+    font-size: 18px; line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease;
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 0 4px;
+  }
+  .lib-card:hover .lib-menu-trigger { opacity: 1; }
+  .lib-menu-trigger:hover { background: rgba(0, 0, 0, 0.78); }
+  .lib-menu {
+    z-index: 10000;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    min-width: 160px;
+  }
+  .lib-menu button {
+    display: block; width: 100%;
+    background: transparent; border: 0;
+    text-align: left;
+    padding: 10px 14px;
+    font-family: inherit; font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .lib-menu button:hover { background: var(--paper-3); }
+  .lib-menu button.danger { color: #c0392b; }
+  .lib-menu button.danger:hover { background: rgba(192, 57, 43, 0.08); }
+
+  /* Fullscreen do slide ativo */
+  #slide-fullscreen {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.94);
+    z-index: 9999;
+    align-items: center; justify-content: center;
+  }
+  #slide-fullscreen.open { display: flex; }
+  #slide-fullscreen .fs-stage {
+    flex: 1; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  #slide-fullscreen .fs-stage .ig-slide-iframe-wrap {
+    background: transparent;
+    position: relative;
+  }
+  #slide-fullscreen .fs-stage .ig-slide-iframe {
+    background: #fff;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+  #slide-fullscreen .fs-stage img {
+    max-width: 100%; max-height: 100vh;
+    object-fit: contain;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+  #slide-fullscreen .fs-close,
+  #slide-fullscreen .fs-nav {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 0; border-radius: 999px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: background 120ms ease;
+  }
+  #slide-fullscreen .fs-close:hover,
+  #slide-fullscreen .fs-nav:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.18);
+  }
+  #slide-fullscreen .fs-nav:disabled { opacity: 0.25; cursor: default; }
+  #slide-fullscreen .fs-close {
+    top: 20px; right: 20px;
+    width: 44px; height: 44px;
+    font-size: 26px; line-height: 1;
+  }
+  #slide-fullscreen .fs-nav {
+    top: 50%; transform: translateY(-50%);
+    width: 52px; height: 52px;
+    font-size: 28px; line-height: 1;
+  }
+  #slide-fullscreen .fs-nav.prev { left: 24px; }
+  #slide-fullscreen .fs-nav.next { right: 24px; }
+  #slide-fullscreen .fs-counter {
+    position: absolute;
+    top: 24px; left: 50%; transform: translateX(-50%);
+    color: #fff;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 6px 14px; border-radius: 999px;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
   }

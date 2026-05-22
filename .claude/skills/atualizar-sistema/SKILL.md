@@ -144,19 +144,44 @@ NUNCA copia nem sobrescreve:
   gerado e dados operacionais
 - `local-routes.mjs` — extensão de servidor do cliente (rotas custom)
 - `local-ui.js` — extensão de UI do cliente (painéis custom)
+- `local-ui.css` — overrides de tema/paleta (carregado pelo `mazyui-ui.html`)
+- `.ui-fork` — marker (ver abaixo)
 - `*.code-workspace`
 - `package-lock.json`
 - `node_modules/`
 - `.git/`
 - `_inbox/`, `_arquivo/` (se existirem)
 
-**Importante:** `local-routes.mjs` e `local-ui.js` são o contrato de
-extensão do MazyUI. Cliente coloca rotas e painéis próprios nesses
-arquivos pra que `mazyui-server.mjs` e `mazyui-ui.html` (os arquivos do
-sistema) possam ser atualizados livremente sem perder customizações.
-Se você for editar `mazyui-server.mjs` ou `mazyui-ui.html` "só pra
-adicionar uma coisinha" — pare. Mova pra `local-*` antes que o próximo
-sync apague.
+**Importante:** `local-routes.mjs`, `local-ui.js` e `local-ui.css` são
+o contrato de extensão do MazyUI. Cliente coloca rotas, painéis e
+overrides de tema nesses arquivos pra que `mazyui-server.mjs` e
+`sabec-ui.*` (os arquivos do sistema) possam ser atualizados livremente
+sem perder customizações. Se você for editar `mazyui-server.mjs` ou
+`mazyui-ui.html` "só pra adicionar uma coisinha" — pare. Mova pra
+`local-*` antes que o próximo sync apague.
+
+### UI-fork (cliente com UI customizada por dentro)
+
+Caso especial: cliente que customizou `mazyui-ui.html/css/js` direto
+(fora do contrato `local-*`) e não pode mais receber atualizações
+desses arquivos. Pra marcar, o cliente cria um arquivo `.ui-fork` na
+raiz. Se ele existir, o sync **pula completamente** `mazyui-ui.html`,
+`mazyui-ui.css` e `mazyui-ui.js` — todo o resto (server, skills,
+templates, CLAUDE.md, launchers) flui normal.
+
+Detecção:
+
+```bash
+UI_FORK=0
+[ -f ./.ui-fork ] && UI_FORK=1
+```
+
+Em todas as fases (4, 5, 6.1, 6.5), tratar os 3 arquivos UI como
+"ignorados" quando `UI_FORK=1`. Mostrar no resumo da Fase 5:
+
+```
+  UI-fork detectado (.ui-fork) — pulando sabec-ui.{html,css,js}
+```
 
 ## Fase 4 — Detecta mudanças
 
@@ -244,9 +269,13 @@ Só roda se o usuário disser [s].
 
 ```bash
 cp "$TMP_DIR/mazyui-server.mjs" ./mazyui-server.mjs
-cp "$TMP_DIR/mazyui-ui.html" ./mazyui-ui.html
-cp "$TMP_DIR/mazyui-ui.css" ./mazyui-ui.css
-cp "$TMP_DIR/mazyui-ui.js" ./mazyui-ui.js
+if [ ! -f ./.ui-fork ]; then
+  cp "$TMP_DIR/mazyui-ui.html" ./mazyui-ui.html
+  cp "$TMP_DIR/mazyui-ui.css"  ./mazyui-ui.css
+  cp "$TMP_DIR/mazyui-ui.js"   ./mazyui-ui.js
+else
+  echo "  ⊘ .ui-fork detectado — sabec-ui.{html,css,js} preservados"
+fi
 cp "$TMP_DIR/Abrir MazyUI.command" "./Abrir MazyUI.command"
 cp "$TMP_DIR/Abrir MazyUI.bat" "./Abrir MazyUI.bat"
 cp "$TMP_DIR/.gitignore" ./.gitignore
@@ -421,13 +450,19 @@ Antes de commitar, confere duas invariantes:
 ### 1. Arquivos de sistema bateram com o central
 
 ```bash
-for f in mazyui-server.mjs mazyui-ui.html mazyui-ui.css mazyui-ui.js; do
+SYS_FILES=(mazyui-server.mjs)
+if [ ! -f ./.ui-fork ]; then
+  SYS_FILES+=(mazyui-ui.html mazyui-ui.css mazyui-ui.js)
+fi
+for f in "${SYS_FILES[@]}"; do
   diff -q "$TMP_DIR/$f" "./$f" && \
     echo "  ✓ $f = central" || echo "  ✗ $f DIVERGE"
 done
 ```
 
-Se algum diverge, é bug do sync — reporta e não commita.
+Se algum diverge, é bug do sync — reporta e não commita. Quando
+`.ui-fork` está presente, os 3 arquivos UI são propositalmente
+divergentes e ficam fora dessa verificação.
 
 ### 2. `local-routes.mjs` e `local-ui.js` continuam intactos
 

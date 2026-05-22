@@ -104,7 +104,13 @@ function saveChatHistory() {
   if (!isChatPersistEnabled()) return;
   try {
     const turns = state.chat.turns.slice(-CHAT_HISTORY_MAX_TURNS);
-    const payload = { turns, sessionId: state.chat.sessionId || null, savedAt: Date.now() };
+    const payload = {
+      turns,
+      sessionId: state.chat.sessionId || null,
+      sessionUuid: state.chat.sessionUuid || null,
+      hasSession: !!state.chat.hasSession,
+      savedAt: Date.now(),
+    };
     localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(payload));
   } catch {
     // localStorage cheio ou indisponível — silencioso
@@ -117,7 +123,12 @@ function loadChatHistory() {
     if (!raw) return null;
     const obj = JSON.parse(raw);
     if (!Array.isArray(obj?.turns)) return null;
-    return { turns: obj.turns, sessionId: obj.sessionId || null };
+    return {
+      turns: obj.turns,
+      sessionId: obj.sessionId || null,
+      sessionUuid: obj.sessionUuid || null,
+      hasSession: !!obj.hasSession,
+    };
   } catch { return null; }
 }
 function clearChatHistory() {
@@ -156,6 +167,7 @@ function archiveCurrentChat() {
       sessions[idx] = {
         ...sessions[idx],
         turns: state.chat.turns.slice(-CHAT_HISTORY_MAX_TURNS),
+        sessionUuid: state.chat.sessionUuid || null,
         savedAt: Date.now(),
       };
       saveChatSessions(sessions);
@@ -167,6 +179,7 @@ function archiveCurrentChat() {
     id,
     title: deriveSessionTitle(state.chat.turns),
     turns: state.chat.turns.slice(-CHAT_HISTORY_MAX_TURNS),
+    sessionUuid: state.chat.sessionUuid || null,
     savedAt: Date.now(),
   });
   saveChatSessions(sessions);
@@ -182,7 +195,9 @@ function openChatSession(id) {
   // Arquiva a conversa atual antes de trocar
   archiveCurrentChat();
   state.chat.turns = (sess.turns || []).map(t => ({ ...t }));
-  state.chat.hasSession = false; // CLI não persiste; próxima msg começa sessão nova
+  // Se temos o UUID da sessão CLI dela, dá pra resumir; senão começa fresca.
+  state.chat.sessionUuid = sess.sessionUuid || null;
+  state.chat.hasSession = !!sess.sessionUuid;
   state.chat.sessionId = sess.id;
   saveChatHistory();
   return true;
@@ -231,13 +246,15 @@ const state = {
   lightboxFormat: null, // formato ativo no lightbox (null = primário do item)
   slideRuns: {},        // `${itemName}::${slideIdx}` -> { runId, startedAt, timer }
   slideModel: null,     // modelo das edições inline; hidrata no boot
+  fs: null,             // fullscreen viewer: { idx, slides, fmt } | null
   identityHistory: [],  // pilha de undo pra edições do design-guide.md
   chat: {
     turns: [],          // [{ id, kind: 'user'|'assistant', ... }]
-    hasSession: false,  // server passes --continue when true
+    hasSession: false,  // se true, próxima mensagem usa --resume <sessionUuid>
     running: false,
     model: null,        // hydrated in boot
     sessionId: null,    // id da sessão arquivada associada (null = conversa "fresca")
+    sessionUuid: null,  // UUID do Claude Code CLI desse thread de chat; isola do slide-edit
     attachments: [],    // [{ id, name, dataUrl, path, status: 'uploading'|'done'|'error', error? }]
   },
 };
@@ -308,6 +325,19 @@ function loadLocalUi() {
 
 function newId(prefix) {
   return prefix + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+}
+
+// UUID v4 pra identificar sessões do Claude Code CLI. Cada thread de
+// conversa (chat ou slide-edit) precisa de um id próprio pra não
+// vazar contexto entre runs paralelos.
+function newSessionUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback determinístico-o-suficiente pro formato UUID v4.
+  const hex = '0123456789abcdef';
+  const rand = (n) => Array.from({ length: n }, () => hex[Math.floor(Math.random() * 16)]).join('');
+  return `${rand(8)}-${rand(4)}-4${rand(3)}-${hex[8 + Math.floor(Math.random() * 4)]}${rand(3)}-${rand(12)}`;
 }
 
 /* ============================================================
@@ -424,6 +454,197 @@ function getActiveSlides(item) {
   return item.slides;
 }
 
+function getActiveSlidesHtml(item) {
+  const fmt = state.lightboxFormat;
+  if (fmt && item.formats && item.formats[fmt]) return item.formats[fmt].slidesHtml || [];
+  return item.slidesHtml || [];
+}
+
+// Dimensões base do slide pra cada formato. Espelha FORMAT_DIMS do servidor.
+const FORMAT_DIMS_UI = {
+  instagram: { w: 1080, h: 1350 },
+  quadrado:  { w: 1080, h: 1080 },
+  stories:   { w: 1080, h: 1920 },
+  horizontal:{ w: 1920, h: 1080 },
+  vertical:  { w: 1080, h: 1440 },
+  pinterest: { w: 1080, h: 1620 },
+  classico:  { w: 1440, h: 1080 },
+  'link-card': { w: 1200, h: 628 },
+};
+
+function dimsForSlide(p, item) {
+  // Tenta achar a pasta-formato no path do slide
+  const m = /\/(instagram|quadrado|stories|horizontal|vertical|pinterest|classico|link-card)\//.exec(p || '');
+  if (m && FORMAT_DIMS_UI[m[1]]) return FORMAT_DIMS_UI[m[1]];
+  const fmt = state.lightboxFormat || getPrimaryFormat(item);
+  if (fmt && FORMAT_DIMS_UI[fmt]) return FORMAT_DIMS_UI[fmt];
+  return { w: 1080, h: 1350 };
+}
+
+// Renderiza o conteúdo de um slide no track do lightbox: PNG vira <img>,
+// HTML vira <iframe> escalado pra caber no viewport. Iframe carrega o
+// arquivo do servidor (file:// não, mas /api/file resolve relativo).
+function renderSlideMedia(p, i) {
+  const item = state.library[state.lightboxIdx];
+  if (/\.html?$/i.test(p)) {
+    const { w, h } = dimsForSlide(p, item);
+    // O wrap é position:relative e o iframe absoluto. CSS de transform
+    // é aplicado em tempo de runtime no goSlide/openLightbox via JS, pra
+    // pegar a largura real do viewport (depende do tamanho do lightbox).
+    return `
+      <div class="ig-slide-iframe-wrap" data-slide-html="${escapeHtml(p)}" data-w="${w}" data-h="${h}">
+        <iframe class="ig-slide-iframe" id="slide-iframe-${i}"
+                src="${fileUrl(p)}#t=${Date.now()}"
+                style="width:${w}px;height:${h}px;"
+                sandbox="allow-same-origin"
+                loading="lazy"
+                title="slide ${i + 1}"></iframe>
+      </div>`;
+  }
+  return `<img id="slide-img-${i}" src="${fileUrl(p)}" alt="slide ${i + 1}" draggable="false">`;
+}
+
+// Calcula o transform:scale pra cada iframe encaixar no viewport. Roda
+// depois do openLightbox quando o DOM já tem width medido.
+// Renderiza um único slide HTML → PNG via /api/render-slide.
+// Retorna { ok, ms, pngPath } ou lança.
+async function renderOneSlide(htmlPath) {
+  const r = await fetch('/api/render-slide', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ htmlPath }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'render falhou');
+  return data;
+}
+
+// Atualiza o src do PNG visível depois da renderização. Como o lightbox
+// usa iframe pra HTML, não tem `<img id=slide-img-N>` pra atualizar —
+// mas o cover/gallery sim. reloadQuiet() faz o refresh global.
+function bumpPngCache(pngPath) {
+  const url = fileUrl(pngPath);
+  document.querySelectorAll(`img[src^="${url}"]`).forEach(img => {
+    img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+  });
+}
+
+function wireRenderBar(item) {
+  const btnOne = document.getElementById('lb-render-current');
+  const btnAll = document.getElementById('lb-render-all');
+  const prog = document.getElementById('lb-render-progress');
+  if (!btnOne) return;
+
+  const setProg = (msg) => { if (prog) prog.textContent = msg || ''; };
+
+  btnOne.addEventListener('click', async () => {
+    // Item com htmlSrc: renderiza esse HTML único. Senão: slide atual.
+    const target = item.htmlSrc || getActiveSlides(item)[state.lightboxSlide];
+    if (!target || !/\.html?$/i.test(target)) {
+      setProg('Sem HTML pra renderizar.');
+      return;
+    }
+    btnOne.disabled = true;
+    if (btnAll) btnAll.disabled = true;
+    setProg('Renderizando…');
+    try {
+      const data = await renderOneSlide(target);
+      setProg(`Pronto · ${data.ms}ms · ${data.pngPath}`);
+      bumpPngCache(data.pngPath);
+      toast(item.htmlSrc ? 'PNG gerado.' : 'Slide renderizado.');
+      reloadQuiet();
+    } catch (e) {
+      setProg('Erro: ' + (e.message || e));
+    } finally {
+      btnOne.disabled = false;
+      if (btnAll) btnAll.disabled = false;
+    }
+  });
+
+  if (!btnAll) return;
+
+  btnAll.addEventListener('click', async () => {
+    const folder = getActiveFolder(item);
+    if (!folder) { setProg('Sem pasta ativa.'); return; }
+    btnOne.disabled = true;
+    btnAll.disabled = true;
+    setProg('Iniciando…');
+    try {
+      // POST + ler como stream. fetch streaming funciona em todos os
+      // browsers modernos; parseamos linha por linha como SSE.
+      const resp = await fetch('/api/render-carrossel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder }),
+      });
+      if (!resp.ok || !resp.body) {
+        setProg('Erro: servidor recusou render.');
+        return;
+      }
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let total = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const lines = block.split('\n');
+          let event = null, data = '';
+          for (const ln of lines) {
+            if (ln.startsWith('event:')) event = ln.slice(6).trim();
+            else if (ln.startsWith('data:')) data += ln.slice(5).trim();
+          }
+          if (!event) continue;
+          let obj = {};
+          try { obj = JSON.parse(data); } catch {}
+          if (event === 'boot') {
+            total = obj.total || 0;
+            setProg(`0/${total} renderizados…`);
+          } else if (event === 'progress') {
+            setProg(`${obj.done}/${total} · último ${obj.ms}ms`);
+            if (obj.pngPath) bumpPngCache(obj.pngPath);
+          } else if (event === 'error') {
+            setProg(`Erro em ${obj.htmlPath}: ${obj.message}`);
+          } else if (event === 'done') {
+            const msg = `Pronto · ${obj.rendered}/${obj.total} renderizados${obj.failed ? ` · ${obj.failed} falharam` : ''}`;
+            setProg(msg);
+            toast('Carrossel renderizado.');
+          }
+        }
+      }
+      reloadQuiet();
+    } catch (e) {
+      setProg('Erro: ' + (e.message || e));
+    } finally {
+      btnOne.disabled = false;
+      btnAll.disabled = false;
+    }
+  });
+}
+
+function scaleSlideIframes() {
+  document.querySelectorAll('.ig-slide-iframe-wrap').forEach(wrap => {
+    const w = parseFloat(wrap.dataset.w);
+    const h = parseFloat(wrap.dataset.h);
+    if (!w || !h) return;
+    const iframe = wrap.querySelector('.ig-slide-iframe');
+    if (!iframe) return;
+    const cw = wrap.clientWidth;
+    const ch = wrap.clientHeight;
+    const scale = Math.min(cw / w, ch / h);
+    iframe.style.transform = `scale(${scale})`;
+    // Centraliza se sobrar margem (caso o aspect-ratio do viewport diferir
+    // levemente do slide).
+    iframe.style.left = ((cw - w * scale) / 2) + 'px';
+    iframe.style.top  = ((ch - h * scale) / 2) + 'px';
+  });
+}
+
 function getActiveFolder(item) {
   const fmt = state.lightboxFormat;
   if (fmt && item.formats && item.formats[fmt]) return item.formats[fmt].folder;
@@ -443,6 +664,68 @@ function submitSlideEdit(ev, slideIdx) {
   return false;
 }
 
+// Edita um HTML único (item.htmlSrc) via Claude CLI. Usado quando o item
+// tem um arquivo HTML multi-slide na raiz em vez de slide-*.html.
+function submitHtmlEdit(ev, htmlSrc) {
+  ev.preventDefault();
+  const input = document.getElementById('html-edit-input');
+  if (!input) return false;
+  const pedido = input.value.trim();
+  if (!pedido) return false;
+  const item = state.library[state.lightboxIdx];
+  if (!item) return false;
+  editHtml(item, htmlSrc, pedido);
+  return false;
+}
+
+async function editHtml(item, htmlSrc, pedido) {
+  const btn = document.getElementById('html-edit-btn');
+  const inp = document.getElementById('html-edit-input');
+  const status = document.getElementById('html-edit-status');
+  if (btn) btn.disabled = true;
+  if (status) { status.textContent = 'rodando…'; status.className = 'lightbox-slide-status'; }
+
+  const prompt = `Edite o arquivo HTML de um carrossel do {{BRAND_NAME}}.
+
+Post: ${item.name}
+Arquivo HTML a editar: ${htmlSrc}
+
+Pedido do usuário: "${pedido}"
+
+REGRAS:
+1. O ÚNICO arquivo que você pode modificar é: ${htmlSrc}
+2. Não altere outros arquivos. Não rode render.js nem gere PNGs.
+3. Mantenha a estrutura HTML existente — apenas modifique o conteúdo pedido.
+4. Responda com UMA frase curta confirmando o que foi feito.`;
+
+  const runId = newId('html');
+  let exitCode = null;
+  try {
+    await streamRun(prompt, runId, evt => {
+      if (evt.event === 'done') {
+        try { exitCode = JSON.parse(evt.data).exitCode; } catch {}
+      }
+    }, { model: state.slideModel });
+  } catch {}
+
+  const ok = exitCode === 0;
+  if (btn) btn.disabled = false;
+  if (status) {
+    status.textContent = ok ? 'pronto.' : 'falhou. tenta de novo.';
+    status.className = 'lightbox-slide-status ' + (ok ? 'ok' : 'err');
+  }
+  if (ok) {
+    if (inp) inp.value = '';
+    // Refresh do iframe HTML aberto no lightbox sem reload total da biblioteca.
+    document.querySelectorAll('.ig-slide-iframe').forEach(f => {
+      if (f.src && f.src.includes(encodeURIComponent(htmlSrc).replace(/%2F/g, '/'))) {
+        f.src = f.src.replace(/#t=\d+$/, '') + '#t=' + Date.now();
+      }
+    });
+    reloadQuiet();
+  }
+}
+
 async function editSlide(item, slideIdx, pedido) {
   const slidePath = getActiveSlides(item)[slideIdx];
   if (!slidePath) return;
@@ -459,39 +742,65 @@ async function editSlide(item, slideIdx, pedido) {
   paintSlideBusy(slideIdx, true);
   paintSlideStatus(slideIdx, 'rodando · 0s');
 
-  const prompt = `Edite UM ÚNICO slide específico de um carrossel do {{BRAND_NAME}}.
+  const isHtml = /\.html?$/i.test(slidePath);
 
-Post: ${item.name}
-Pasta do post: ${getActiveFolder(item) || ''}
-Arquivo a editar: ${slidePath}
+  // Paraleliza snapshot (fs-only, ~50-200ms) com fetch do conteúdo HTML.
+  // Snapshot precisa terminar ANTES do Claude escrever — como Claude leva
+  // 2-5s pra primeiro tool_use (model thinking), o snapshot já tá pronto.
+  const snapshotPromise = fetch('/api/snapshot-siblings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetPath: slidePath, runId }),
+  }).catch(() => null);
 
-Pedido do usuário: "${pedido}"
+  // Pra HTML, embute o conteúdo inline no prompt — elimina o Read inicial
+  // do Claude (1 tool call ~3-5s a menos). PNG não dá pra inlinear.
+  let htmlContent = '';
+  if (isHtml) {
+    try {
+      const r = await fetch(fileUrl(slidePath));
+      if (r.ok) htmlContent = await r.text();
+    } catch {}
+  }
 
-REGRAS RÍGIDAS — LEIA ANTES DE AGIR:
-1. O ÚNICO arquivo PNG que você pode escrever/sobrescrever é: ${slidePath}
-2. NÃO toque em NENHUM outro PNG da mesma pasta. Os outros slides do carrossel devem ficar EXATAMENTE como estão (mesmo conteúdo, mesmo mtime). Um sistema externo vai restaurar qualquer outro PNG que você modificar — e isso vai ser flagado como erro.
-3. PROIBIDO invocar a skill /carrossel, /publicar-tema ou qualquer outra que regenere o carrossel inteiro — elas reescrevem todos os slides.
-4. Se precisar de script (Python/Pillow/etc), o script deve abrir, modificar e salvar SÓ ${slidePath}. Nada de loop pela pasta.
-5. Pode LER outros slides pra entender o estilo, mas NÃO ESCREVER.
-6. Mantém dimensões originais do PNG e a identidade da marca (vê \`identidade/design-guide.md\` se precisar).
-7. Responda com UMA frase curta confirmando o que foi feito nesse slide.`;
+  const prompt = isHtml
+    ? `Edite UM ÚNICO slide HTML do carrossel do {{BRAND_NAME}}. Pedido: "${pedido}"
 
-  // Snapshot dos slides irmãos ANTES do run — qualquer um alterado é
-  // restaurado depois. Belt-and-suspenders contra Claude regenerar o
-  // carrossel inteiro mesmo sendo instruído a não fazer.
-  try {
-    await fetch('/api/snapshot-siblings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetPath: slidePath, runId }),
-    });
-  } catch {}
+Arquivo: ${slidePath}
+
+HTML ATUAL (não precisa Read, está aqui):
+\`\`\`html
+${htmlContent}
+\`\`\`
+
+INSTRUÇÕES:
+- Use APENAS a tool Write em ${slidePath} com o HTML completo modificado. Nada de Read, Edit, Bash, Glob.
+- Não toque em outros arquivos. Não invoque skills (/carrossel etc).
+- Mantém a estrutura \`<div class="slide" style="width:Xpx;height:Ypx">…</div>\` (não muda dimensões).
+- Após o Write, responda com UMA frase curta confirmando.`
+    : `Edite UM ÚNICO slide PNG do carrossel do {{BRAND_NAME}}. Pedido: "${pedido}"
+
+Arquivo: ${slidePath}
+
+INSTRUÇÕES:
+- O ÚNICO PNG que você pode sobrescrever é ${slidePath}. Não toque em nenhum outro PNG da pasta.
+- Não invoque /carrossel, /publicar-tema nem skills que regerem o carrossel inteiro.
+- Pode usar Python/Pillow num script que opere SÓ em ${slidePath}.
+- Mantém dimensões originais e a identidade da marca.
+- Após salvar, responda com UMA frase curta confirmando.`;
+
+  // Garante que o snapshot terminou antes do Claude começar (em prática
+  // já terminou faz tempo, mas é cinto-e-suspensório).
+  await snapshotPromise;
 
   let exitCode = null;
   let resultData = null;
   let connectionError = false;
 
   try {
+    // UUID descartável: cada slide-edit é um agent independente, isolado
+    // do chat e de qualquer outra edição (paralela ou em sequência).
+    const slideSessionUuid = newSessionUuid();
     await streamRun(prompt, runId, evt => {
       if (evt.event === 'event') {
         try {
@@ -501,7 +810,7 @@ REGRAS RÍGIDAS — LEIA ANTES DE AGIR:
       } else if (evt.event === 'done') {
         try { exitCode = JSON.parse(evt.data).exitCode; } catch {}
       }
-    }, { continueSession: false, model: state.slideModel });
+    }, { model: state.slideModel, sessionId: slideSessionUuid });
   } catch (e) {
     connectionError = true;
   }
@@ -546,6 +855,12 @@ REGRAS RÍGIDAS — LEIA ANTES DE AGIR:
         const base = fileUrl(slidePath);
         imgEl.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
       }
+      // HTML slide: força reload do iframe pra refletir as mudanças.
+      const ifr = document.getElementById('slide-iframe-' + slideIdx);
+      if (ifr) {
+        const base = fileUrl(slidePath);
+        ifr.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
+      }
     } else {
       paintSlideStatus(slideIdx, 'falhou. tenta de novo ou ajusta o pedido.', 'err');
     }
@@ -568,8 +883,8 @@ async function boot() {
     state.slideModel = getSlideModel();
     const restored = loadChatHistory();
     if (restored && restored.turns && restored.turns.length) {
-      // Marca como "interrompido" — sessão do CLI não persistiu, próxima
-      // mensagem vai começar uma sessão nova (hasSession permanece false).
+      // CLI persiste sessões por UUID — se temos o UUID, dá pra retomar.
+      // Turnos que estavam 'running' viram 'error' (browser recarregou no meio).
       state.chat.turns = restored.turns.map(t => {
         if (t.kind === 'assistant' && t.status === 'running') {
           return { ...t, status: 'error', events: [...(t.events || []), { kind: 'system', ico: '·', title: 'Sessão interrompida', detail: 'Painel foi recarregado durante esse turno.' }] };
@@ -577,6 +892,8 @@ async function boot() {
         return t;
       });
       state.chat.sessionId = restored.sessionId || null;
+      state.chat.sessionUuid = restored.sessionUuid || null;
+      state.chat.hasSession = !!(restored.hasSession && restored.sessionUuid);
     }
     const s = await apiState();
     state.folderName = s.folderName;
@@ -1359,20 +1676,78 @@ function renderBiblioteca() {
     ${state.library.length === 0
       ? `<div class="card"><p style="color:var(--ink-muted); margin:0;">Nada produzido ainda. Use a skill <strong>Criar carrossel</strong> ou <strong>Publicar tema</strong> pra começar.</p></div>`
       : `<div class="lib-grid">
-          ${state.library.map((item, i) => `
+          ${state.library.map((item, i) => {
+            // Cover: prefere HTML quando existe. Preview ao vivo, atualiza
+            // sem precisar re-renderizar PNG depois de cada edição de slide.
+            // PNG vira fallback só pra posts legados que não têm HTML.
+            const coverHtml = (item.slidesHtml && item.slidesHtml[0]) || (item.slides[0] && /\.html?$/i.test(item.slides[0]) ? item.slides[0] : null);
+            const coverPng = !coverHtml ? ((item.slidesPng && item.slidesPng[0]) || (item.slides[0] && /\.png$/i.test(item.slides[0]) ? item.slides[0] : null)) : null;
+            const dims = coverHtml ? dimsForSlide(coverHtml, item) : null;
+            return `
             <div class="lib-card" data-lib="${i}">
-              <div class="cover ${item.slides.length ? '' : 'empty'}" style="aspect-ratio:${itemAspect(item)};${item.slides[0] ? `background-image:url('${fileUrl(item.slides[0])}')` : ''}">
-                ${item.slides.length ? '' : 'sem imagem'}
+              <button class="lib-menu-trigger" type="button" data-lib="${i}" aria-label="Mais opções">···</button>
+              <div class="cover ${item.slides.length ? '' : 'empty'}" style="aspect-ratio:${itemAspect(item)};${coverPng ? `background-image:url('${fileUrl(coverPng)}')` : ''}">
+                ${coverHtml ? `
+                  <div class="ig-slide-iframe-wrap cover-iframe-wrap" data-slide-html="${escapeHtml(coverHtml)}" data-w="${dims.w}" data-h="${dims.h}">
+                    <iframe class="ig-slide-iframe" src="${fileUrl(coverHtml)}" style="width:${dims.w}px;height:${dims.h}px;" sandbox="allow-same-origin" loading="lazy" title="capa"></iframe>
+                  </div>
+                ` : (item.slides.length ? '' : 'sem imagem')}
               </div>
               <div class="body">
                 <div class="title">${escapeHtml(item.name.replace(/^(carrossel|post)-/, '').replace(/-/g, ' '))}</div>
                 <div class="sub">${item.slides.length} slide${item.slides.length === 1 ? '' : 's'}${item.formats && Object.keys(item.formats).length > 1 ? ` · ${Object.keys(item.formats).length} formatos` : ''}</div>
               </div>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
         </div>`}
   `;
   c.querySelectorAll('.lib-card').forEach(card =>
-    card.addEventListener('click', () => openLightbox(+card.dataset.lib)));
+    card.addEventListener('click', (e) => {
+      // Clique no botão de menu (···) ou dentro do dropdown não abre o lightbox.
+      if (e.target.closest('.lib-menu-trigger') || e.target.closest('.lib-menu')) return;
+      openLightbox(+card.dataset.lib);
+    }));
+  c.querySelectorAll('.lib-menu-trigger').forEach(btn =>
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openLibMenu(+btn.dataset.lib, btn);
+    }));
+  // Escala os iframes-cover quando o DOM já tem largura medida.
+  requestAnimationFrame(() => scaleSlideIframes());
+}
+
+function closeLibMenu() {
+  const m = document.getElementById('lib-menu');
+  if (m) m.remove();
+  document.removeEventListener('click', closeLibMenu);
+}
+
+function openLibMenu(idx, anchor) {
+  closeLibMenu();
+  const item = state.library[idx];
+  if (!item) return;
+  const menu = document.createElement('div');
+  menu.id = 'lib-menu';
+  menu.className = 'lib-menu';
+  menu.innerHTML = `
+    <button type="button" data-act="fullscreen">Tela cheia</button>
+  `;
+  // Posiciona absoluto sob o trigger.
+  const r = anchor.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = (r.bottom + 6) + 'px';
+  menu.style.right = (window.innerWidth - r.right) + 'px';
+  document.body.appendChild(menu);
+  menu.querySelector('[data-act="fullscreen"]').onclick = (e) => {
+    e.stopPropagation();
+    closeLibMenu();
+    state.lightboxIdx = idx;
+    state.lightboxSlide = 0;
+    state.lightboxFormat = null;
+    openSlideFullscreen();
+  };
+  // Fecha em qualquer clique fora.
+  setTimeout(() => document.addEventListener('click', closeLibMenu), 0);
 }
 
 /* ============================================================
@@ -1461,6 +1836,7 @@ function renderChat() {
     state.chat.turns = [];
     state.chat.hasSession = false;
     state.chat.sessionId = null;
+    state.chat.sessionUuid = null;
     clearChatHistory();
     render();
   };
@@ -2285,6 +2661,19 @@ async function startChatRun(turn, prompt) {
   state.currentRun = { runId, turn, startedAt: Date.now() };
   startHeartbeat();
 
+  // Cada thread de chat tem um UUID próprio que o CLI usa pra isolar
+  // contexto. Primeira mensagem: gera UUID e passa --session-id.
+  // Subsequentes: passa --resume <UUID>. Slide-edits usam UUIDs próprios
+  // (em editSlide) e não compartilham com chat.
+  let chatSessionUuid = state.chat.sessionUuid;
+  let resumeUuid = null;
+  if (state.chat.hasSession && chatSessionUuid) {
+    resumeUuid = chatSessionUuid;
+  } else {
+    chatSessionUuid = newSessionUuid();
+    state.chat.sessionUuid = chatSessionUuid;
+  }
+
   let exitCode = null;
   let resultData = null;
 
@@ -2301,7 +2690,11 @@ async function startChatRun(turn, prompt) {
       } else if (evt.event === 'done') {
         try { exitCode = JSON.parse(evt.data).exitCode; } catch {}
       }
-    }, { continueSession: state.chat.hasSession, model: state.chat.model });
+    }, {
+      model: state.chat.model,
+      sessionId: resumeUuid ? null : chatSessionUuid,
+      resumeSession: resumeUuid,
+    });
   } catch (e) {
     appendEventToTurn(turn, { kind: 'error', ico: '!', title: 'Conexão caiu', detail: e.message || '' });
     turn.status = 'error';
@@ -2553,6 +2946,8 @@ async function streamRun(prompt, runId, onEvent, opts = {}) {
       runId,
       continueSession: !!opts.continueSession,
       model: opts.model || null,
+      sessionId: opts.sessionId || null,
+      resumeSession: opts.resumeSession || null,
     }),
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2626,18 +3021,28 @@ async function openLightbox(idx) {
         <button class="ig-more" type="button" aria-label="Mais">···</button>
       </div>
       <div class="ig-viewport" style="aspect-ratio:${activeAspect(item)}">
-        <div class="ig-track" id="ig-track" style="transform: translateX(0%)">
-          ${slides.map((p, i) => `
-            <div class="ig-slide">
-              <img id="slide-img-${i}" src="${fileUrl(p)}" alt="slide ${i + 1}" draggable="false">
-            </div>
-          `).join('')}
-        </div>
-        ${total > 1 ? `
-          <div class="ig-counter" id="ig-counter">1/${total}</div>
-          <button class="ig-nav prev" id="ig-prev" type="button" aria-label="Anterior" disabled>‹</button>
-          <button class="ig-nav next" id="ig-next" type="button" aria-label="Próximo">›</button>
-        ` : ''}
+        ${item.htmlSrc ? (() => {
+          const d = dimsForSlide(item.htmlSrc, item);
+          return `
+            <iframe id="html-frame" src="${fileUrl(item.htmlSrc)}#t=${Date.now()}" style="width:${d.w}px;height:${d.h}px;border:none;display:block;" scrolling="no" sandbox="allow-same-origin"></iframe>
+            <div class="ig-counter" id="ig-counter" style="display:none;">1/1</div>
+            <button class="ig-nav prev" id="ig-prev" type="button" aria-label="Anterior" disabled style="display:none;">‹</button>
+            <button class="ig-nav next" id="ig-next" type="button" aria-label="Próximo" style="display:none;">›</button>
+          `;
+        })() : `
+          <div class="ig-track" id="ig-track" style="transform: translateX(0%)">
+            ${slides.map((p, i) => `
+              <div class="ig-slide">
+                ${renderSlideMedia(p, i)}
+              </div>
+            `).join('')}
+          </div>
+          ${total > 1 ? `
+            <div class="ig-counter" id="ig-counter">1/${total}</div>
+            <button class="ig-nav prev" id="ig-prev" type="button" aria-label="Anterior" disabled>‹</button>
+            <button class="ig-nav next" id="ig-next" type="button" aria-label="Próximo">›</button>
+          ` : ''}
+        `}
       </div>
       <div class="ig-actions">
         <button type="button" aria-label="Curtir">
@@ -2654,7 +3059,7 @@ async function openLightbox(idx) {
           <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
       </div>
-      ${total > 1 ? `<div class="ig-dots" id="ig-dots">${
+      ${total > 1 && !item.htmlSrc ? `<div class="ig-dots" id="ig-dots">${
         slides.map((_, i) => `<div class="ig-dot${i === 0 ? ' active' : ''}" data-slide="${i}"></div>`).join('')
       }</div>` : ''}
       <div class="ig-likes">Curtido por <strong>alguém</strong> e <strong>outras pessoas</strong></div>
@@ -2664,7 +3069,7 @@ async function openLightbox(idx) {
     </div>
   `;
 
-  if (total > 1) {
+  if (total > 1 && !item.htmlSrc) {
     document.getElementById('ig-prev').addEventListener('click', () => goSlide(state.lightboxSlide - 1));
     document.getElementById('ig-next').addEventListener('click', () => goSlide(state.lightboxSlide + 1));
     document.querySelectorAll('#ig-dots .ig-dot').forEach(d => {
@@ -2674,12 +3079,53 @@ async function openLightbox(idx) {
     updateNavButtons(total);
   }
 
+  // Item com htmlSrc: escala o iframe pra caber + detecta .slide internas
+  // e wirea os botões prev/next pra rolar entre as seções dentro do iframe.
+  if (item.htmlSrc) {
+    const applyZoom = () => {
+      const vp = document.querySelector('.ig-viewport');
+      const frame = document.getElementById('html-frame');
+      if (!vp || !frame) return;
+      const w = vp.clientWidth;
+      if (w <= 0) { setTimeout(applyZoom, 16); return; }
+      const canvasW = parseInt(frame.style.width, 10) || 1080;
+      frame.style.zoom = w / canvasW;
+      frame.addEventListener('load', () => {
+        try {
+          const htmlSlides = frame.contentDocument?.querySelectorAll('.slide');
+          if (!htmlSlides?.length) return;
+          const n = htmlSlides.length;
+          const positions = Array.from(htmlSlides).map(s => s.offsetTop);
+          let cur = 0;
+          const prevBtn = document.getElementById('ig-prev');
+          const nextBtn = document.getElementById('ig-next');
+          const counter = document.getElementById('ig-counter');
+          if (n > 1) {
+            if (counter) { counter.style.display = ''; counter.textContent = `1/${n}`; }
+            if (prevBtn) { prevBtn.style.display = ''; prevBtn.disabled = true; }
+            if (nextBtn) { nextBtn.style.display = ''; nextBtn.disabled = false; }
+            const gotoSlide = (idx) => {
+              cur = Math.max(0, Math.min(idx, n - 1));
+              frame.contentWindow.scrollTo(0, positions[cur]);
+              if (counter) counter.textContent = `${cur + 1}/${n}`;
+              if (prevBtn) prevBtn.disabled = cur === 0;
+              if (nextBtn) nextBtn.disabled = cur === n - 1;
+            };
+            prevBtn?.addEventListener('click', () => gotoSlide(cur - 1));
+            nextBtn?.addEventListener('click', () => gotoSlide(cur + 1));
+          }
+        } catch {}
+      });
+    };
+    setTimeout(applyZoom, 0);
+  }
+
   const folder = getActiveFolder(item) || '';
   const fmtKeys = item.formats ? Object.keys(item.formats) : [];
   const activeFmt = state.lightboxFormat || (fmtKeys[0] || null);
   document.getElementById('lightbox-side').innerHTML = `
     <h3>${escapeHtml(item.name)}</h3>
-    <p>${total} slide${total === 1 ? '' : 's'} · use as setas, dots ou arraste pra navegar.</p>
+    <p>${item.htmlSrc ? 'Fonte HTML · edite o código, gere PNG quando pronto.' : `${total} slide${total === 1 ? '' : 's'} · use as setas, dots ou arraste pra navegar.`}</p>
 
     ${fmtKeys.length > 1 ? `
     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;">
@@ -2689,6 +3135,14 @@ async function openLightbox(idx) {
           ${escapeHtml(FORMAT_LABEL[k] || k)}
         </button>`).join('')}
     </div>` : ''}
+
+    ${(item.htmlSrc || getActiveSlidesHtml(item).length > 0) ? `
+    <div class="lb-render-bar">
+      <button type="button" id="lb-render-current" title="${item.htmlSrc ? 'Gera PNG só do arquivo HTML aberto' : 'Gera PNG só do slide atual'}">${item.htmlSrc ? 'PNG deste HTML' : 'PNG deste slide'}</button>
+      ${!item.htmlSrc ? `<button type="button" id="lb-render-all" class="primary" title="Gera um PNG separado por slide a partir do HTML — pronto pra postar">Gerar PNGs separados</button>` : ''}
+    </div>
+    <div class="lb-render-progress" id="lb-render-progress"></div>
+    ` : ''}
 
     ${renderCaptionPanelHTML(item)}
 
@@ -2706,6 +3160,18 @@ async function openLightbox(idx) {
     </div>
 
     <div class="ig-edit-panel">
+      ${item.htmlSrc ? `
+      <div class="ig-edit-label"><span class="pin"></span> Editar HTML</div>
+      <div class="ig-edit-forms">
+        <form class="ig-edit-form active" onsubmit="return submitHtmlEdit(event, '${escapeHtml(item.htmlSrc)}')">
+          <div class="row">
+            <input id="html-edit-input" type="text" placeholder="Pedir alteração… (ex: mudar título, trocar cor)" autocomplete="off">
+            <button id="html-edit-btn" type="submit">Aplicar</button>
+          </div>
+          <div id="html-edit-status" class="lightbox-slide-status"></div>
+        </form>
+      </div>
+      ` : `
       <div class="ig-edit-label">
         <span class="pin"></span>
         Editando slide <span id="ig-edit-current">1</span> de ${total}
@@ -2721,13 +3187,21 @@ async function openLightbox(idx) {
           </form>
         `).join('')}
       </div>
+      `}
     </div>
 
-    <button id="lightbox-open-folder"
-      style="margin-top: 18px; background: var(--paper); color: var(--ink); border: 0; padding: 10px 16px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 500;"
-      data-folder="${escapeHtml(folder)}">
-      Abrir pasta das imagens
-    </button>
+    <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;">
+      <button id="lightbox-fullscreen"
+        type="button"
+        style="background: var(--ink); color: var(--paper); border: 0; padding: 10px 16px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 500;">
+        Tela cheia
+      </button>
+      <button id="lightbox-open-folder"
+        style="background: var(--paper); color: var(--ink); border: 0; padding: 10px 16px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 500;"
+        data-folder="${escapeHtml(folder)}">
+        Abrir pasta das imagens
+      </button>
+    </div>
 
     <p style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.5; margin-top: 24px;">
       ${escapeHtml(folder.replace(/\//g, ' / '))}
@@ -2735,6 +3209,8 @@ async function openLightbox(idx) {
   `;
   const openBtn = document.getElementById('lightbox-open-folder');
   if (openBtn) openBtn.addEventListener('click', () => openFolder(openBtn.dataset.folder));
+  const fsBtn = document.getElementById('lightbox-fullscreen');
+  if (fsBtn) fsBtn.addEventListener('click', () => openSlideFullscreen());
   const modelSel = document.getElementById('lightbox-model');
   if (modelSel) {
     modelSel.addEventListener('change', e => {
@@ -2747,6 +3223,102 @@ async function openLightbox(idx) {
   restoreSlideRuns(item);
   wireCaptionPanel(item);
   document.getElementById('lightbox').classList.add('open');
+  // Depois que o lightbox abriu o DOM tem width medido — escalar iframes
+  // dos slides HTML pra caber no viewport.
+  requestAnimationFrame(() => scaleSlideIframes());
+  wireRenderBar(item);
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('lightbox')?.classList.contains('open')) {
+    scaleSlideIframes();
+  }
+});
+
+/* ============================================================
+   Fullscreen do slide ativo
+   ============================================================ */
+let _fsKeyHandler = null;
+
+function openSlideFullscreen() {
+  const item = state.library[state.lightboxIdx];
+  if (!item) return;
+  const slides = getActiveSlides(item);
+  if (!slides || !slides.length) return;
+  state.fs = {
+    idx: state.lightboxSlide || 0,
+    slides,
+    fmt: state.lightboxFormat || getPrimaryFormat(item),
+  };
+  let overlay = document.getElementById('slide-fullscreen');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'slide-fullscreen';
+    overlay.innerHTML = `
+      <button class="fs-close" type="button" aria-label="Fechar">×</button>
+      <div class="fs-counter" id="fs-counter"></div>
+      <button class="fs-nav prev" type="button" aria-label="Anterior">‹</button>
+      <div class="fs-stage" id="fs-stage"></div>
+      <button class="fs-nav next" type="button" aria-label="Próximo">›</button>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('.fs-close').onclick = closeSlideFullscreen;
+    overlay.querySelector('.fs-nav.prev').onclick = () => fsGo(-1);
+    overlay.querySelector('.fs-nav.next').onclick = () => fsGo(+1);
+    overlay.onclick = (e) => { if (e.target === overlay) closeSlideFullscreen(); };
+    window.addEventListener('resize', () => {
+      if (overlay.classList.contains('open')) renderFsSlide();
+    });
+  }
+  overlay.classList.add('open');
+  renderFsSlide();
+  _fsKeyHandler = (e) => {
+    if (e.key === 'Escape') closeSlideFullscreen();
+    else if (e.key === 'ArrowLeft') fsGo(-1);
+    else if (e.key === 'ArrowRight') fsGo(+1);
+  };
+  document.addEventListener('keydown', _fsKeyHandler);
+}
+
+function closeSlideFullscreen() {
+  const overlay = document.getElementById('slide-fullscreen');
+  if (overlay) overlay.classList.remove('open');
+  if (_fsKeyHandler) {
+    document.removeEventListener('keydown', _fsKeyHandler);
+    _fsKeyHandler = null;
+  }
+}
+
+function fsGo(delta) {
+  if (!state.fs) return;
+  const n = state.fs.slides.length;
+  state.fs.idx = Math.max(0, Math.min(n - 1, state.fs.idx + delta));
+  renderFsSlide();
+}
+
+function renderFsSlide() {
+  if (!state.fs) return;
+  const { slides, idx } = state.fs;
+  const stage = document.getElementById('fs-stage');
+  const counter = document.getElementById('fs-counter');
+  if (!stage) return;
+  stage.innerHTML = renderSlideMedia(slides[idx], idx);
+  if (counter) counter.textContent = `${idx + 1}/${slides.length}`;
+  const prev = document.querySelector('#slide-fullscreen .fs-nav.prev');
+  const next = document.querySelector('#slide-fullscreen .fs-nav.next');
+  if (prev) prev.disabled = idx === 0;
+  if (next) next.disabled = idx === slides.length - 1;
+  // Escala iframe HTML pra caber no viewport. PNG já tem max-width/height via CSS.
+  requestAnimationFrame(() => {
+    const frame = stage.querySelector('.ig-slide-iframe');
+    if (!frame) return;
+    const item = state.library[state.lightboxIdx];
+    const dims = dimsForSlide(slides[idx], item);
+    const vw = stage.clientWidth, vh = stage.clientHeight;
+    if (vw > 0 && vh > 0 && dims.w > 0 && dims.h > 0) {
+      frame.style.zoom = Math.min(vw / dims.w, vh / dims.h);
+    }
+  });
 }
 
 /* ============================================================

@@ -241,10 +241,42 @@ internos do sistema. O `ctx` passado pra `onMount` traz:
 - `toast(msg)` — notificação curta
 - `escapeHtml(str)` — sanitização básica
 
+### Tema: `local-ui.css`
+
+Arquivo opcional na raiz do cliente. Se existir, `mazyui-ui.html` carrega
+ele depois do `mazyui-ui.css` (com `onerror="this.remove()"`, então
+silenciosamente some quando ausente). É o canal correto pra cliente
+sobrescrever paleta/tipografia sem hackear o CSS do sistema:
+
+```css
+/* local-ui.css */
+:root {
+  --ink:    #0A0A0A;
+  --paper:  #EDE9DF;
+  --red:    #1F4FFF;
+  --sans:   'Inter', system-ui, sans-serif;
+}
+body { color: var(--paper); background: var(--ink); }
+```
+
+Funciona apenas pra **overrides cosméticos** (variáveis CSS, cores,
+fontes, ajustes pontuais). Mudança estrutural (layout, novos elementos)
+exige `local-ui.js` com `registerPanel`.
+
+### Escape hatch: `.ui-fork`
+
+Quando um cliente já hackeou `mazyui-ui.html/css/js` direto e não dá
+mais pra desfazer, criar um arquivo vazio `.ui-fork` na raiz. O
+`/atualizar-sistema` detecta e **pula os 3 arquivos UI** em todo sync
+futuro — o resto (server, skills, templates, CLAUDE.md) flui normal.
+É admissão de dívida técnica, não solução; sempre que possível, prefira
+`local-ui.css`/`local-ui.js`.
+
 ### O que NUNCA fazer
 
 - Editar `mazyui-server.mjs`, `mazyui-ui.html`, `mazyui-ui.css` ou `mazyui-ui.js` pra adicionar feature de
   cliente — `/atualizar-sistema` vai sobrescrever e a feature some.
+  (Exceção: cliente com `.ui-fork`. Veja acima.)
 - Persistir dados do cliente em qualquer lugar fora de `dados/`,
   `_memoria/`, ou pastas custom listadas em CLIENTE na skill
   `/atualizar-sistema`.

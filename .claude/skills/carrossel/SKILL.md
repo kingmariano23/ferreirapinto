@@ -2,7 +2,9 @@
 name: carrossel
 description: >
   Cria carrosséis e posts visuais pra Instagram, TikTok, LinkedIn com a identidade visual da marca.
-  Gera HTML estilizado + renderiza em PNG 1080x1350 via Playwright, com legenda pronta no final.
+  Gera um arquivo HTML por slide (1080x1350 por padrão) com a copy e a legenda prontas.
+  Os PNGs ficam pra depois — o painel do MazyUI tem botão "Renderizar" que dispara o Playwright
+  headless do servidor; a skill só emite HTML, então termina rápido.
   Suporta carrossel texto puro, carrossel com foto IA (gerada via OpenAI) e post único.
   Use quando o usuário pedir "carrossel", "post", "conteúdo pro instagram", "criar imagem",
   "gerar foto", "post educativo", ou /carrossel.
@@ -17,7 +19,9 @@ Skill central de criação de conteúdo visual. Pega um tema → entrega HTMLs e
 - **Identidade visual:** `identidade/design-guide.md` — LER ANTES de criar qualquer visual
 - **Contexto do negócio:** `_memoria/empresa.md`
 - **Tom de voz:** `_memoria/preferencias.md`
-- **Playwright:** pra renderizar HTML em PNG (`npx playwright screenshot` ou via `render.js`)
+- **Renderização PNG:** **não é** responsabilidade dessa skill. O painel do MazyUI
+  (`/api/render-slide` e `/api/render-carrossel`) usa Playwright instalado
+  em `.mazyui-runtime/` pra gerar PNGs sob demanda quando o usuário clicar "Renderizar"
 - **OpenAI API (opcional):** pra gerar fotos realistas — só se o cliente tiver chave configurada
 - **Outputs vão em:** `marketing/conteudo/<tipo>-<tema>-<YYYY-MM-DD>/`
 
@@ -275,25 +279,62 @@ Se não tiver o script ainda, instruir o usuário a configurar `OPENAI_API_KEY` 
 
 **CHECKPOINT:** Foto aprovada → seguir. Se não, ajustar prompt e regenerar.
 
-### Passo 4 — Criar visuais (HTML + PNG)
+### Passo 4 — Criar visuais (HTML por slide)
 
-1. **Formato mestre primeiro (sequencial, com cuidado).** Criar **um `carrossel.html`** (ou `carrossel-<formato-mestre>.html` se forem múltiplos formatos) com TODOS os slides como `<div class="slide">` dentro do mesmo arquivo. Inline CSS, Google Fonts como única dependência externa. Aplicar:
-   - Dimensões do `.slide` conforme o formato escolhido (ver "Formatos / aspect ratios")
+**Princípio:** cada slide vira **um arquivo HTML independente** (`slide-01.html`, `slide-02.html`, …) dentro da pasta do formato (`instagram/`, `stories/`, etc). Isso faz a UI carregar/atualizar o preview em milissegundos (DOM-level, sem regenerar PNG) e dá ao botão "Editar slide" do lightbox um alvo trivial (mexer só num arquivo).
+
+PNG NÃO é responsabilidade dessa skill — o painel do MazyUI tem um botão "Renderizar PNG" que dispara `/api/render-slide` (Playwright headless já instalado em `.mazyui-runtime/`). A skill foca em emitir HTML válido e bonito.
+
+1. **Formato mestre primeiro (sequencial, com cuidado).** Pra cada slide do mestre, criar um arquivo `marketing/conteudo/<pasta>/<formato>/slide-NN.html` (`slide-01.html`, `slide-02.html`, ...). Cada HTML é **autocontido**: inline CSS, Google Fonts via `<link>` no head (única dependência externa), referência a fotos por path relativo (`../foto-x.png` ou `foto-x.png` se a foto estiver dentro da pasta do formato). Aplicar:
+   - Dimensões do `.slide` conforme o formato escolhido (ver "Formatos / aspect ratios"). O elemento raiz **precisa** ser `<div class="slide" style="width:Xpx;height:Ypx;…">` — o renderizador detecta `.slide` e screenshota ele.
    - Cores e tipografia de `identidade/design-guide.md`
-   - Mínimo 2 layouts diferentes (não repetir o mesmo em todos os slides)
+   - Mínimo 2 layouts diferentes ao longo do carrossel (não repetir o mesmo em todos os slides)
    - Logo top-left + slide-counter top-right em todos os slides
    - Slide final: logo + CTA, fundo na cor principal
    - Em 9:16, deixar zona segura inferior (~250px) livre de copy/CTA crítico
 
+   Estrutura recomendada de cada arquivo:
+
+   ```html
+   <!doctype html>
+   <html lang="pt-BR">
+   <head>
+     <meta charset="utf-8">
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+     <style>
+       html, body { margin:0; padding:0; background:#fff; }
+       .slide { width:1080px; height:1350px; box-sizing:border-box;
+         font-family:'Inter',system-ui,sans-serif; position:relative;
+         overflow:hidden; }
+       /* ... estilos do slide ... */
+     </style>
+   </head>
+   <body>
+     <div class="slide" style="background:#0E1116; color:#FAFAF7;">
+       <!-- conteúdo do slide -->
+     </div>
+   </body>
+   </html>
+   ```
+
+   **Por que um arquivo por slide?**
+   - Editar um slide pela UI mexe num único arquivo (snapshot/restore protege os irmãos).
+   - Renderizar um slide é instantâneo (`/api/render-slide` carrega só esse HTML).
+   - A UI pode mostrar HTMLs lado a lado sem precisar parsear um arquivo gigante.
+   - Quebra menos quando o Claude faz uma edição parcial (não tem como pegar `</body>` errado).
+
+2. **Opcional — `carrossel.html` combinado.** Pode (mas não precisa) gerar também um arquivo `carrossel.html` na raiz da pasta do item, agregando todos os slides com `<div class="slide">` em sequência (útil pra preview rápido fora do painel). Se gerar, é cópia visual — fonte de verdade são os `slide-NN.html` individuais.
+
    Renderizar e validar o mestre antes de tocar nos derivados.
 
 1.b. **Formatos derivados em paralelo (se houver mais de um formato).** Numa única mensagem, disparar várias chamadas do `Agent` tool (subagent_type `general-purpose`) — uma por formato adicional. Briefing por agente:
-   - Caminho do HTML mestre já validado (ler com `Read`)
+   - Caminhos dos HTMLs mestre já validados (ler todos os `slide-NN.html` da pasta do formato mestre com `Read`)
    - Formato alvo: nome, dimensões em px, pasta de saída
    - Trechos relevantes de "Adaptação de layout por formato" pra esse aspect ratio
    - Copy aprovada literal (não reescrever)
    - Lista de fotos a reutilizar (não regerar)
-   - Tarefas: (a) escrever `carrossel-<formato>.html` partindo do mestre, (b) ajustar `.slide` width/height, fontes, padding e décor conforme a tabela, (c) atualizar/duplicar `render.js` pra incluir esse viewport, (d) rodar render e gerar PNGs em `<pasta-do-formato>/slide-NN.png`, (e) retornar lista de arquivos criados.
+   - Tarefas: (a) escrever um arquivo `slide-NN.html` por slide na pasta `<pasta-do-formato>/` (ex: `stories/slide-01.html`), partindo do mestre correspondente; (b) ajustar `.slide` width/height, fontes, padding e décor conforme a tabela; (c) retornar lista de arquivos criados. **NÃO gerar PNG** — a UI faz isso via botão "Renderizar tudo" quando o usuário pedir.
    - Restrições: não alterar copy, não regerar foto IA, não mudar a ordem nem a quantidade de slides, não trocar layout nomeado de nenhum slide.
 
    Esperar todos os agentes terminarem antes do passo 3.
@@ -311,12 +352,16 @@ Se não tiver o script ainda, instruir o usuário a configurar `OPENAI_API_KEY` 
    </div>
    ```
 
-2. Criar `render.js` na mesma pasta — script Node com Playwright que abre o(s) HTML(s) e tira screenshot de cada `.slide` nas dimensões do formato escolhido. Se forem múltiplos formatos, iterar pela lista e salvar em pastas distintas (`instagram/`, `stories/`, `horizontal/`). Pode reutilizar `node_modules` de uma pasta anterior (não precisa rodar `npm install` toda vez):
-```bash
-NODE_PATH="<pasta-com-node_modules>/node_modules" node render.js
-```
+2. **Renderização de PNG é responsabilidade do painel.** Não criar `render.js` nessa pasta nem rodar Playwright. Quando o usuário abrir o post no painel e clicar "Renderizar tudo" (ou "Renderizar slide"), o servidor (`/api/render-slide` / `/api/render-carrossel`) chama o Playwright pré-instalado em `.mazyui-runtime/`. Isso descarrega o trabalho lento da skill — o `/carrossel` termina quando os HTMLs estão prontos.
 
-3. Mostrar slide 1, 2 e o CTA final renderizados. Se aprovado, mostrar os intermediários.
+   Se o usuário pedir explicitamente os PNGs gerados pela skill (sem abrir o painel), pode chamar o endpoint via `curl`:
+   ```bash
+   curl -s -X POST http://localhost:7777/api/render-carrossel \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"<nome-do-item>"}'
+   ```
+
+3. Mostrar slide 1, 2 e o CTA final pro usuário (pode ser via abrir os HTMLs, ou avisar que estão prontos pra preview no painel). Se aprovado, mostrar os intermediários.
 
 ### Passo 5 — Salvar e organizar
 
@@ -324,19 +369,26 @@ NODE_PATH="<pasta-com-node_modules>/node_modules" node render.js
 marketing/conteudo/<tipo>-<tema>-<YYYY-MM-DD>/
   texto.md                       ← texto aprovado + legenda
   foto-<nome>.png                ← fotos geradas por IA (se houver)
-  carrossel.html                 ← um arquivo se 1 formato
-  carrossel-feed.html            ← ou um por formato se múltiplos
-  carrossel-stories.html
-  render.js
-  instagram/                     ← 4:5 (1080×1350) ou 1:1 (1080×1080)
-    slide-01.png → slide-NN.png
+  carrossel.html                 ← opcional: combinado de preview
+  instagram/                     ← 4:5 (1080×1350) — formato mestre default
+    slide-01.html                ← fonte de verdade, editável pela UI
+    slide-01.png                 ← gerado on-demand pelo botão "Renderizar"
+    slide-02.html
+    slide-02.png
+    …
   stories/                       ← 9:16 (1080×1920) — se pedido
-    slide-01.png → ...
+    slide-01.html
+    slide-01.png
+    …
   horizontal/                    ← 16:9 (1920×1080) — se pedido
-    slide-01.png → ...
+    slide-01.html
+    slide-01.png
+    …
   legenda.md                     ← legenda Insta+FB
   legenda-linkedin.md            ← (se pedido, mais formal)
 ```
+
+Os arquivos `.png` aparecem só depois que o usuário clica "Renderizar" no painel (ou roda o endpoint via `curl`). Antes disso a UI mostra o slide diretamente do HTML, num iframe — então o preview já é editável e visível sem PNG.
 
 ### Passo 6 — Conexão com blog (opcional)
 
@@ -353,13 +405,12 @@ Se sim, chamar `/publicar-tema` com o mesmo tema.
 - Sempre ler `identidade/design-guide.md` antes de criar qualquer visual
 - Formato default é **4:5 (1080×1350)** — feed retrato. Outros formatos só quando o usuário pedir (1:1, 9:16, 16:9). Ver tabela "Formatos / aspect ratios" pra dimensões, pasta de saída e regras de adaptação de layout
 - **Múltiplos formatos = mesma peça em proporções diferentes.** O primeiro formato (principal) é o mestre: copy, fotos, slides e layout nomeado de cada slide são idênticos entre todos. Só dimensões, fontes e padding mudam pra caber. Ver "Regra de consistência entre formatos"
-- **Múltiplos formatos = paralelizar os derivados.** Mestre é feito sequencialmente, com cuidado, e validado. Só depois disparar agentes em paralelo (uma única mensagem com várias chamadas do `Agent` tool, subagent_type `general-purpose`) — um agente por formato adicional, recebendo o HTML mestre + regras de adaptação. Cada agente escreve seu próprio `carrossel-<formato>.html` e renderiza os PNGs na pasta correspondente. Esperar todos terminarem antes de mostrar pro usuário.
+- **Múltiplos formatos = paralelizar os derivados.** Mestre é feito sequencialmente, com cuidado, e validado. Só depois disparar agentes em paralelo (uma única mensagem com várias chamadas do `Agent` tool, subagent_type `general-purpose`) — um agente por formato adicional, recebendo o HTML mestre + regras de adaptação. Cada agente escreve só os `slide-NN.html` na pasta correspondente — **nunca PNGs**, renderização é responsabilidade do painel. Esperar todos terminarem antes de mostrar pro usuário.
 - Linguagem segue `_memoria/preferencias.md` estritamente
 - Sempre considerar a sequência de capa no feed antes de definir capa nova
 - Sempre gerar legenda automaticamente ao final, salvando em `legenda.md`
 - Fotos IA: sempre pedir aprovação antes de usar no carrossel
 - Fotos IA: prompts em inglês
 - Fotos IA: nunca gerar fotos de pessoas/rostos identificáveis
-- HTMLs: um único arquivo `carrossel.html` com todos os slides + `render.js` na mesma pasta. Inline CSS
-- Render: reutilizar `node_modules` quando possível (não rodar `npm install` em cada pasta)
+- HTMLs: **um arquivo por slide** (`<pasta-do-formato>/slide-NN.html`), autocontido, inline CSS. Elemento raiz `<div class="slide" style="width:Xpx;height:Ypx">…</div>`. PNGs são gerados sob demanda pelo painel — a skill **não roda Playwright**.
 - Não repetir layout entre slides — usar variação visual

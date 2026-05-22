@@ -91,6 +91,76 @@ function readSafe(rel) {
 
 const FORMAT_DIRS = ['instagram', 'quadrado', 'stories', 'horizontal', 'vertical', 'pinterest', 'classico', 'link-card'];
 
+// Dimensões padrão por pasta de formato. Usado pelo renderizador HTML→PNG
+// quando o cliente não passar width/height explicitamente.
+const FORMAT_DIMS = {
+  instagram: { width: 1080, height: 1350 },  // 4:5 — feed retrato (padrão)
+  quadrado:  { width: 1080, height: 1080 },  // 1:1
+  stories:   { width: 1080, height: 1920 },  // 9:16
+  horizontal:{ width: 1920, height: 1080 },  // 16:9
+  vertical:  { width: 1080, height: 1440 },  // 3:4
+  pinterest: { width: 1080, height: 1620 },  // 2:3
+  classico:  { width: 1440, height: 1080 },  // 4:3
+  'link-card': { width: 1200, height: 628 },  // 1.91:1
+};
+
+// Lista um diretório e retorna os arquivos que casam com um regex, ordenados.
+function listFiles(dir, rx) {
+  try { return fs.readdirSync(dir).filter(f => rx.test(f)).sort(); }
+  catch { return []; }
+}
+
+// Combina HTML + PNG do mesmo slide num único path. Lightbox prefere HTML
+// (rápido pra editar), gallery prefere PNG (cover estável). Indexamos por
+// "slug" do arquivo (sem extensão e sem zero-padding ruidoso).
+// PNGs renderizados ficam em `<dir>/imagens/<W>x<H>/slide-*.png` (formato
+// novo) ou direto em `<dir>/slide-*.png` (legado, antes da reorganização).
+// Varremos ambos e devolvemos o path *relativo a `dir`* já com o subdir.
+function listRenderedPngs(dir) {
+  const out = [];
+  // Legado: PNGs soltos no mesmo dir
+  for (const f of listFiles(dir, /^slide-.*\.png$/i)) out.push(f);
+  // Novo: imagens/<size>/slide-*.png
+  const imgsDir = path.join(dir, 'imagens');
+  if (fs.existsSync(imgsDir)) {
+    try {
+      for (const sizeDir of fs.readdirSync(imgsDir)) {
+        const sd = path.join(imgsDir, sizeDir);
+        try {
+          if (!fs.statSync(sd).isDirectory()) continue;
+        } catch { continue; }
+        for (const f of listFiles(sd, /^slide-.*\.png$/i)) {
+          out.push(`imagens/${sizeDir}/${f}`);
+        }
+      }
+    } catch {}
+  }
+  return out;
+}
+
+function combineSlideList(dir) {
+  const htmls = listFiles(dir, /^slide-.*\.html$/i);
+  const pngs = listRenderedPngs(dir);
+  const bySlug = new Map();
+  const stem = (f) => path.basename(f).replace(/\.[^.]+$/, '');
+  for (const f of htmls) {
+    const slug = stem(f);
+    if (!bySlug.has(slug)) bySlug.set(slug, {});
+    bySlug.get(slug).html = f;
+  }
+  for (const f of pngs) {
+    const slug = stem(f);
+    if (!bySlug.has(slug)) bySlug.set(slug, {});
+    // Se houver múltiplos PNGs (vários tamanhos), mantém o primeiro (menor
+    // path lexicograficamente = soltos no dir > imagens/.../). Ordem
+    // determinística é bom; cover sempre o mesmo.
+    if (!bySlug.get(slug).png) bySlug.get(slug).png = f;
+  }
+  return [...bySlug.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([slug, x]) => ({ slug, html: x.html || null, png: x.png || null }));
+}
+
 function scanLibrary() {
   const dir = path.join(ROOT, 'marketing', 'conteudo');
   if (!fs.existsSync(dir)) return [];
@@ -105,22 +175,29 @@ function scanLibrary() {
       for (const fmt of FORMAT_DIRS) {
         const fmtDir = path.join(itemDir, fmt);
         if (!fs.existsSync(fmtDir)) continue;
-        try {
-          const pngs = fs.readdirSync(fmtDir).filter(f => /\.png$/i.test(f)).sort();
-          if (pngs.length) {
-            const rel = path.relative(ROOT, fmtDir).replace(/\\/g, '/');
-            formats[fmt] = { slides: pngs.map(f => `${rel}/${f}`), folder: rel };
-          }
-        } catch {}
+        const rel = path.relative(ROOT, fmtDir).replace(/\\/g, '/');
+        const list = combineSlideList(fmtDir);
+        if (!list.length) continue;
+        // Para o front: 1) slides = lista de paths "preferidos" (HTML se existe,
+        // senão PNG) — alimenta o lightbox. 2) slidesPng = só os PNGs (alimenta
+        // o cover/gallery). 3) slidesHtml = só os HTMLs (alimenta o render).
+        const slides = list.map(s => `${rel}/${s.html || s.png}`);
+        const slidesPng = list.filter(s => s.png).map(s => `${rel}/${s.png}`);
+        const slidesHtml = list.filter(s => s.html).map(s => `${rel}/${s.html}`);
+        formats[fmt] = { slides, slidesPng, slidesHtml, folder: rel };
       }
       const relItem = path.relative(ROOT, itemDir).replace(/\\/g, '/');
-      let rootPngs = [];
-      try {
-        rootPngs = fs.readdirSync(itemDir).filter(f => /\.png$/i.test(f)).sort();
-      } catch {}
+      const rootList = combineSlideList(itemDir);
       const primaryFmt = formats.instagram ? 'instagram' : Object.keys(formats)[0] || null;
-      const slides = primaryFmt ? formats[primaryFmt].slides : rootPngs.map(f => `${relItem}/${f}`);
-      const folder = primaryFmt ? formats[primaryFmt].folder : relItem;
+      let slides, slidesPng, slidesHtml, folder;
+      if (primaryFmt) {
+        ({ slides, slidesPng, slidesHtml, folder } = formats[primaryFmt]);
+      } else {
+        slides = rootList.map(s => `${relItem}/${s.html || s.png}`);
+        slidesPng = rootList.filter(s => s.png).map(s => `${relItem}/${s.png}`);
+        slidesHtml = rootList.filter(s => s.html).map(s => `${relItem}/${s.html}`);
+        folder = relItem;
+      }
       const captionPath = `${relItem}/legenda.md`;
       const captionLinkedinPath = `${relItem}/legenda-linkedin.md`;
       const readMaybe = (rel) => {
@@ -131,9 +208,21 @@ function scanLibrary() {
       };
       const caption = readMaybe(captionPath);
       const captionLinkedin = readMaybe(captionLinkedinPath);
+      // HTML único multi-slide na raiz do item (ex: carrossel-feed.html).
+      // É um modelo alternativo ao slide-*.html: um único arquivo com várias
+      // seções .slide que o front renderiza num iframe rolável.
+      let htmlSrc = null;
+      try {
+        const rootFiles = fs.readdirSync(itemDir);
+        const feedHtmls = rootFiles.filter(f =>
+          /\.html?$/i.test(f) && !/^slide-/i.test(f) &&
+          fs.statSync(path.join(itemDir, f)).isFile()
+        );
+        if (feedHtmls.length === 1) htmlSrc = `${relItem}/${feedHtmls[0]}`;
+      } catch {}
       return {
-        name, folder, slides, formats,
-        itemFolder: relItem,
+        name, folder, slides, slidesPng, slidesHtml, formats,
+        itemFolder: relItem, htmlSrc,
         captionPath, caption,
         captionLinkedinPath, captionLinkedin,
       };
@@ -243,6 +332,28 @@ async function handleDeleteFile(req, res) {
   }
 }
 
+// Reescreve src/href/url(...) relativos pra /api/file?path=... pra que
+// HTML servido via /api/file (ex: preview em iframe) consiga carregar
+// assets relativos como ../../../identidade/SVG/logo.svg.
+function rewriteHtmlAssetUrls(html, relPath) {
+  const baseDir = path.posix.dirname(relPath.split(path.sep).join('/'));
+  const isAbsolute = (v) => /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#|data:)/i.test(v);
+  const toApiUrl = (val) => {
+    const resolved = path.posix.normalize(path.posix.join(baseDir, val));
+    if (resolved.startsWith('..')) return val; // fora do workspace, deixa estourar 404
+    return `/api/file?path=${encodeURIComponent(resolved)}`;
+  };
+  return html
+    .replace(/\b(src|href)=(["'])([^"']+)\2/gi, (m, attr, q, val) => {
+      if (isAbsolute(val)) return m;
+      return `${attr}=${q}${toApiUrl(val)}${q}`;
+    })
+    .replace(/\burl\(\s*(["']?)([^)"']+)\1\s*\)/gi, (m, q, val) => {
+      if (isAbsolute(val)) return m;
+      return `url(${q}${toApiUrl(val)}${q})`;
+    });
+}
+
 function handleFile(req, res, url) {
   try {
     const rel = url.searchParams.get('path');
@@ -250,6 +361,15 @@ function handleFile(req, res, url) {
     const abs = safeResolve(rel);
     if (!fs.existsSync(abs)) return text(res, 404, 'não encontrado');
     const ext = path.extname(abs).toLowerCase();
+    if (ext === '.html' || ext === '.htm') {
+      const raw = fs.readFileSync(abs, 'utf8');
+      const rewritten = rewriteHtmlAssetUrls(raw, rel);
+      res.writeHead(200, {
+        'Content-Type': MIME[ext] || 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      return res.end(rewritten);
+    }
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': 'no-store',
@@ -267,8 +387,13 @@ async function handleRun(req, res) {
   let body;
   try { body = JSON.parse(await readBody(req)); }
   catch { return json(res, 400, { error: 'JSON inválido' }); }
-  const { prompt, runId, continueSession, model } = body;
+  const { prompt, runId, continueSession, model, sessionId, resumeSession } = body;
   if (!prompt || !runId) return json(res, 400, { error: 'prompt e runId obrigatórios' });
+
+  // Valida UUID v4-ish (aceita qualquer UUID canônico 8-4-4-4-12 hex). Inválido vira null.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const safeSessionId = (typeof sessionId === 'string' && UUID_RE.test(sessionId)) ? sessionId : null;
+  const safeResume = (typeof resumeSession === 'string' && UUID_RE.test(resumeSession)) ? resumeSession : null;
 
   if (!CLAUDE_ENTRY) {
     try { CLAUDE_ENTRY = await ensureClaudeCode(); }
@@ -295,7 +420,17 @@ async function handleRun(req, res) {
     '--verbose',
     '--permission-mode', 'bypassPermissions',
   ];
-  if (continueSession) args.push('--continue');
+  // Isolamento de sessões: cada thread de conversa (chat ou slide-edit) tem
+  // um UUID próprio. --resume continua a thread, --session-id força um id
+  // fresco. Sem nenhum dos dois, cai pra --continue (legacy / sem id).
+  // resumeSession tem precedência: continuar uma thread existente.
+  if (safeResume) {
+    args.push('--resume', safeResume);
+  } else if (safeSessionId) {
+    args.push('--session-id', safeSessionId);
+  } else if (continueSession) {
+    args.push('--continue');
+  }
   if (model && /^[a-z0-9._-]+$/i.test(model)) args.push('--model', model);
   // Sem shell — shell:true no Windows reconstrói o comando via cmd.exe e
   // quebra args com newline. Spawnar o entry direto (seja .exe nativo ou
@@ -400,6 +535,13 @@ const SNAPSHOT_ROOT = path.join(RUNTIME_DIR, 'slide-snapshots');
 // mudança veio de outra run paralela (intencional), não de scribbling.
 const intentionallyEditedSlides = new Set();
 
+// Filtra siblings pela extensão do arquivo alvo: edição de PNG snapshota
+// só PNGs irmãos; edição de HTML snapshota só HTMLs (PNG vai ser
+// regenerado pelo render endpoint, então não precisa proteger).
+function siblingExtRegex(targetPath) {
+  return /\.html?$/i.test(targetPath) ? /\.html?$/i : /\.png$/i;
+}
+
 async function handleSnapshotSiblings(req, res) {
   try {
     const { targetPath, runId } = JSON.parse(await readBody(req));
@@ -411,8 +553,9 @@ async function handleSnapshotSiblings(req, res) {
     intentionallyEditedSlides.add(absTarget);
     const snapDir = path.join(SNAPSHOT_ROOT, runId.replace(/[^a-zA-Z0-9_-]/g, '_'));
     fs.mkdirSync(snapDir, { recursive: true });
+    const rx = siblingExtRegex(targetPath);
     const siblings = fs.readdirSync(folder)
-      .filter(f => /\.png$/i.test(f) && f !== targetName);
+      .filter(f => rx.test(f) && f !== targetName);
     for (const f of siblings) {
       fs.copyFileSync(path.join(folder, f), path.join(snapDir, f));
     }
@@ -509,6 +652,245 @@ function readRawBody(req, maxBytes) {
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
+}
+
+// ============================================================
+// Renderização HTML → PNG (Playwright lazy install)
+//
+// O fluxo do /carrossel agora emite um arquivo .html por slide. Editar
+// HTML é instantâneo (DOM-level), mas pra publicar precisamos do PNG
+// na proporção certa. O usuário clica "Renderizar PNG" e o servidor
+// abre o HTML num Chromium headless e tira screenshot.
+//
+// Playwright + Chromium custam ~170MB. Instalamos lazy dentro de
+// `.mazyui-runtime/` na primeira chamada — pra quem nunca usar essa
+// feature o custo é zero.
+// ============================================================
+let PLAYWRIGHT = null; // módulo carregado depois do install
+let PLAYWRIGHT_BROWSER = null; // instância singleton de chromium
+
+function resolvePlaywrightModule() {
+  const modPath = path.join(RUNTIME_DIR, 'node_modules', 'playwright');
+  try {
+    if (fs.existsSync(path.join(modPath, 'package.json'))) {
+      return path.join(modPath, 'index.js');
+    }
+  } catch {}
+  return null;
+}
+
+async function ensurePlaywright() {
+  if (PLAYWRIGHT) return PLAYWRIGHT;
+  let entry = resolvePlaywrightModule();
+  if (!entry) {
+    console.log('[mazyui] Primeira renderização — instalando Playwright + Chromium em .mazyui-runtime …');
+    fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+    const pkgPath = path.join(RUNTIME_DIR, 'package.json');
+    if (!fs.existsSync(pkgPath)) {
+      fs.writeFileSync(pkgPath, JSON.stringify({
+        name: 'mazyui-runtime', private: true, version: '0.0.1',
+      }, null, 2));
+    }
+    await new Promise((resolve, reject) => {
+      const npmCmd = IS_WIN ? 'npm.cmd' : 'npm';
+      const proc = spawn(npmCmd, [
+        'install', 'playwright',
+        '--no-audit', '--no-fund', '--loglevel=error',
+      ], { cwd: RUNTIME_DIR, stdio: 'inherit', shell: IS_WIN });
+      proc.on('close', code => code === 0 ? resolve() : reject(new Error('npm install playwright falhou: ' + code)));
+      proc.on('error', reject);
+    });
+    // Baixa o binário do Chromium (Playwright só baixa quando rodado o
+    // script de install, que `npm install playwright` já dispara). Por
+    // segurança chamamos `playwright install chromium` explicitamente.
+    await new Promise((resolve, reject) => {
+      const pwBin = path.join(RUNTIME_DIR, 'node_modules', '.bin', IS_WIN ? 'playwright.cmd' : 'playwright');
+      if (!fs.existsSync(pwBin)) return resolve();
+      const proc = spawn(pwBin, ['install', 'chromium', '--with-deps'], {
+        cwd: RUNTIME_DIR,
+        stdio: 'inherit',
+        env: { ...process.env },
+        shell: IS_WIN,
+      });
+      // --with-deps pode falhar em hosts sem sudo; tentamos sem deps no fallback
+      proc.on('close', code => {
+        if (code === 0) return resolve();
+        const proc2 = spawn(pwBin, ['install', 'chromium'], {
+          cwd: RUNTIME_DIR, stdio: 'inherit', env: { ...process.env }, shell: IS_WIN,
+        });
+        proc2.on('close', c => c === 0 ? resolve() : reject(new Error('playwright install chromium falhou: ' + c)));
+        proc2.on('error', reject);
+      });
+      proc.on('error', reject);
+    });
+    entry = resolvePlaywrightModule();
+    if (!entry) throw new Error('Playwright instalou mas o módulo não foi encontrado em ' + RUNTIME_DIR);
+    console.log('[mazyui] Playwright pronto.');
+  }
+  // Playwright é CJS — quando importado via ESM, os browsers (chromium,
+  // firefox, …) ficam em `.default`. Normalizamos pra ter `chromium` sempre.
+  const mod = await import(new URL('file://' + entry).href);
+  PLAYWRIGHT = mod.chromium ? mod : (mod.default || mod);
+  return PLAYWRIGHT;
+}
+
+async function getBrowser() {
+  if (PLAYWRIGHT_BROWSER && PLAYWRIGHT_BROWSER.isConnected()) return PLAYWRIGHT_BROWSER;
+  const pw = await ensurePlaywright();
+  PLAYWRIGHT_BROWSER = await pw.chromium.launch({ headless: true });
+  return PLAYWRIGHT_BROWSER;
+}
+
+// Descobre as dimensões certas pro screenshot olhando primeiro o HTML
+// (`.slide { width: X; height: Y }`), depois a pasta pai (`instagram/`,
+// `stories/`, …), depois cai no default 1080×1350.
+function inferDims(htmlAbs, htmlSource, override) {
+  if (override && override.width && override.height) {
+    return { width: Number(override.width), height: Number(override.height) };
+  }
+  // Tenta extrair do CSS inline: `.slide { width: 1080px; height: 1350px }`
+  const m = /\.slide\s*\{[^}]*?width\s*:\s*(\d+)px[^}]*?height\s*:\s*(\d+)px/i.exec(htmlSource || '');
+  if (m) return { width: +m[1], height: +m[2] };
+  // Tenta achar pelo nome da pasta pai
+  const parent = path.basename(path.dirname(htmlAbs));
+  if (FORMAT_DIMS[parent]) return FORMAT_DIMS[parent];
+  return { width: 1080, height: 1350 };
+}
+
+async function renderHtmlToPng(htmlAbs, pngAbs, dimsOverride) {
+  const html = fs.readFileSync(htmlAbs, 'utf8');
+  const { width, height } = inferDims(htmlAbs, html, dimsOverride);
+
+  const browser = await getBrowser();
+  const ctx = await browser.newContext({
+    viewport: { width, height },
+    deviceScaleFactor: 1,
+  });
+  const page = await ctx.newPage();
+  try {
+    // file:// dá ao HTML acesso a fotos relativas (foto-*.png) sem proxy.
+    await page.goto('file://' + htmlAbs, { waitUntil: 'networkidle' });
+    // Espera fontes carregarem — sem isso o screenshot pode pegar fallback.
+    try { await page.evaluate(() => document.fonts && document.fonts.ready); } catch {}
+    // Se houver um `.slide` raiz, screenshota ele; senão, screenshota viewport.
+    const elem = await page.$('.slide');
+    if (elem) {
+      await elem.screenshot({ path: pngAbs, type: 'png', omitBackground: false });
+    } else {
+      await page.screenshot({ path: pngAbs, type: 'png', fullPage: false, clip: { x:0, y:0, width, height } });
+    }
+  } finally {
+    await ctx.close();
+  }
+  return { width, height };
+}
+
+// Resolve o destino do PNG: `<dirDoHtml>/imagens/<W>x<H>/<slide>.png`. Cria
+// as pastas se faltarem. Inferimos dims a partir do próprio HTML (override
+// vence se vier do cliente).
+function pngTargetForHtml(htmlAbs, dims) {
+  const dir = path.dirname(htmlAbs);
+  const base = path.basename(htmlAbs).replace(/\.html?$/i, '.png');
+  const sizeDir = `${dims.width}x${dims.height}`;
+  const target = path.join(dir, 'imagens', sizeDir, base);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  return target;
+}
+
+async function handleRenderSlide(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const { htmlPath, width, height } = body || {};
+    if (!htmlPath) return json(res, 400, { error: 'htmlPath obrigatório' });
+    if (!/\.html?$/i.test(htmlPath)) return json(res, 400, { error: 'htmlPath precisa ser .html' });
+    const htmlAbs = safeResolve(htmlPath);
+    if (!fs.existsSync(htmlAbs)) return json(res, 404, { error: 'HTML não encontrado' });
+    const htmlSrc = fs.readFileSync(htmlAbs, 'utf8');
+    const dims = inferDims(htmlAbs, htmlSrc, { width, height });
+    const pngAbs = pngTargetForHtml(htmlAbs, dims);
+    const t0 = Date.now();
+    await renderHtmlToPng(htmlAbs, pngAbs, dims);
+    const pngRel = path.relative(ROOT, pngAbs).replace(/\\/g, '/');
+    json(res, 200, { ok: true, pngPath: pngRel, ms: Date.now() - t0, ...dims });
+  } catch (e) {
+    json(res, 500, { error: String(e.message || e) });
+  }
+}
+
+// Renderiza todos os slide-*.html de um item (ou de um formato específico)
+// e devolve progresso via SSE. O cliente abre como EventSource — não usamos
+// fetch streaming porque o front já tem helpers SSE.
+async function handleRenderCarrossel(req, res) {
+  let body;
+  try { body = JSON.parse(await readBody(req)); }
+  catch { return json(res, 400, { error: 'JSON inválido' }); }
+  const { folder, name } = body || {};
+  if (!folder && !name) return json(res, 400, { error: 'folder ou name obrigatório' });
+
+  // Resolve qual pasta varrer. Se `folder` vier (ex: marketing/.../instagram),
+  // varremos só ela. Se vier `name`, varremos a pasta do item e todos os
+  // subdiretórios de formato.
+  const targets = [];
+  try {
+    if (folder) {
+      const abs = safeResolve(folder);
+      if (!fs.existsSync(abs)) return json(res, 404, { error: 'pasta não encontrada' });
+      targets.push(abs);
+    } else {
+      const itemAbs = safeResolve(path.posix.join('marketing/conteudo', name));
+      if (!fs.existsSync(itemAbs)) return json(res, 404, { error: 'item não encontrado' });
+      for (const fmt of FORMAT_DIRS) {
+        const fa = path.join(itemAbs, fmt);
+        if (fs.existsSync(fa)) targets.push(fa);
+      }
+      // Se nenhum subdir de formato, tenta a raiz do item.
+      if (!targets.length) targets.push(itemAbs);
+    }
+  } catch (e) {
+    return json(res, 400, { error: String(e.message || e) });
+  }
+
+  // Coleta todos os HTMLs antes de começar (pra contagem total exata).
+  const jobs = [];
+  for (const dir of targets) {
+    for (const f of listFiles(dir, /^slide-.*\.html$/i)) {
+      jobs.push(path.join(dir, f));
+    }
+  }
+
+  // SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (event, data) => {
+    if (event) res.write(`event: ${event}\n`);
+    res.write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
+  };
+  send('boot', { total: jobs.length });
+
+  let done = 0;
+  let failed = 0;
+  for (const htmlAbs of jobs) {
+    const htmlRel = path.relative(ROOT, htmlAbs).replace(/\\/g, '/');
+    try {
+      const htmlSrc = fs.readFileSync(htmlAbs, 'utf8');
+      const dims = inferDims(htmlAbs, htmlSrc, null);
+      const pngAbs = pngTargetForHtml(htmlAbs, dims);
+      const t0 = Date.now();
+      await renderHtmlToPng(htmlAbs, pngAbs, dims);
+      done++;
+      const pngRel = path.relative(ROOT, pngAbs).replace(/\\/g, '/');
+      send('progress', { done, total: jobs.length, htmlPath: htmlRel, pngPath: pngRel, ms: Date.now() - t0 });
+    } catch (e) {
+      failed++;
+      send('error', { htmlPath: htmlRel, message: String(e.message || e) });
+    }
+  }
+  send('done', { rendered: done, failed, total: jobs.length });
+  res.end();
 }
 
 async function handleUpload(req, res) {
@@ -629,6 +1011,8 @@ addRoute('POST', '/api/open-folder',     handleOpenFolder);
 addRoute('POST', '/api/upload',          handleUpload);
 addRoute('POST', '/api/snapshot-siblings', handleSnapshotSiblings);
 addRoute('POST', '/api/restore-siblings',  handleRestoreSiblings);
+addRoute('POST', '/api/render-slide',      handleRenderSlide);
+addRoute('POST', '/api/render-carrossel',  handleRenderCarrossel);
 
 // ============================================================
 // Hook de extensão: carrega ./local-routes.mjs se existir
