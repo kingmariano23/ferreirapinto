@@ -62,6 +62,11 @@ Vem ser atendido por quem entende sua rotina.
 - Tríades e sequências de 3 elementos paralelos ("ensina, protege e constrói") — padrão de IA, evitar sempre
 - Travessão só quando faz sentido estrutural. Não usar como separador decorativo ou de frase
 - Posts de datas comemorativas e conteúdo institucional não devem ser restritos ao público de obra/marcenaria — comunicação ampla e inclusiva
+- Nunca repetir a headline como primeira linha da legenda — são peças separadas com funções diferentes
+- O CTA "📍 7 lojas em Recife e Olinda" não pode aparecer igual em todo post — variar a formulação. Lojas e WhatsApp continuam presentes, mas o texto muda
+- Itens visuais sugeridos pelo usuário (ex: "banquinho, caixinha, mesinha") são direção de arte — não repetir na legenda
+- Em posts emocionais e datas comemorativas, não citar o produto/serviço diretamente — a marca entra como suporte ("a Ferreira Pinto cuida da parte técnica"), não como oferta explícita
+- Trocadilho "pau pra toda obra" aprovado: duplo sentido (expressão popular + pau = madeira) — recurso válido pra copies de datas especiais
 
 ## Checklist antes de entregar copy
 
