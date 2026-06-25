@@ -61,6 +61,8 @@ Honestidade · Transparência · Confiança · Respeito ao meio ambiente · Comu
 
 Cliente está em fase de estruturação da presença digital. A comunicação precisa modernizar a imagem sem perder a credibilidade de 60+ anos de história.
 
+Acesso limitado ao catálogo/estoque exato da FP: ao criar conteúdo, manter materiais genéricos (madeira, sobra de compensado, MDF) e não cravar SKUs/produtos específicos que talvez a loja não tenha.
+
 ## Referência interna
 
 - **Dossiê de cards do Trello:** `_memoria/ferreira-pinto-dossie-trello.md` — 153 descrições de cards com a etiqueta "Ferreira Pinto FP" (board ARROC), com análise de marca, padrões de demanda e voz de copy aprovada. Consultar antes de criar conteúdo da FP.

@@ -82,3 +82,5 @@ Vem ser atendido por quem entende sua rotina.
 - Roteiros de vídeo: manter abertura impactante + CTA claro no final
 - Proporção da copy: 20% educar/atenção · 50% vender · 30% ação
 - Quando o usuário envia um texto como direção, desenvolver a partir dele — não substituir por versão própria
+- Data comemorativa que a redação achar "emocional demais": transformar em conteúdo prático/tutorial — passo a passo didático (pode partir de tutorial real da internet) em poucas telas, ancorado num material genérico (madeira, sobra de compensado), com o plano de corte como herói (a FP corta, o cliente não precisa de ferramenta em casa). Tutorial não é post emocional, então aqui pode citar material — não conflita com a regra de "não citar produto em post emocional"
+- Carrossel: a capa conta como Tela 1 (numeração começa nela)
