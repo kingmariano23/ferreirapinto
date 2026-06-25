@@ -64,3 +64,8 @@ Cliente está em fase de estruturação da presença digital. A comunicação pr
 ## Referência interna
 
 - **Dossiê de cards do Trello:** `_memoria/ferreira-pinto-dossie-trello.md` — 153 descrições de cards com a etiqueta "Ferreira Pinto FP" (board ARROC), com análise de marca, padrões de demanda e voz de copy aprovada. Consultar antes de criar conteúdo da FP.
+
+## Infraestrutura / Repositório
+
+- **Repositório próprio:** `kingmariano23/ferreirapinto` (público), remote único `origin`. Migrado em 25/06/2026 a partir do `DiogoSabec/MazyUI` comprado. `git push` / `/salvar` vão direto pra cá.
+- **Vínculo com o MazyUI central cortado:** o remote `upstream` foi removido de propósito (apropriação total). Consequência: o `/atualizar-sistema` não tem mais de onde puxar melhorias do sistema central. Pra reativar caso queira: `git remote add upstream https://github.com/DiogoSabec/MazyUI.git`.
