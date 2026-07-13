@@ -22,6 +22,10 @@
 
 Tamanho: 40 a 80 palavras no total. Ritmo *punchy* — simula o pensamento de quem não tem tempo a perder.
 
+## Card Whatsapp (datas comemorativas/institucional)
+
+Bloco separado da Arte e da Legenda (`## Card Whatsapp`), usado em datas comemorativas/institucionais (Dia do Trabalhador, Dia do Consumidor, Dia dos Pais). É a mensagem mandada direto pra colaboradores, clientes e parceiros via WhatsApp — reconhecimento, sem venda, sem CTA, sem `📍`. Formato: **Headline** curta + **Texto** de 1-2 frases. Evitar gratidão genérica ("celebramos quem constrói", "juntos somos mais fortes") — puxar pra um ângulo específico da marca (trocadilho de madeira/obra, metáfora de ferramenta) em vez de agradecimento raso.
+
 ## Pronomes e formalidade
 
 - Segunda pessoa: "você", "seu/sua"
