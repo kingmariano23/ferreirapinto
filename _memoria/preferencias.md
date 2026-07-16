@@ -47,6 +47,12 @@ Vem ser atendido por quem entende sua rotina.
 📍 7 lojas em Recife e Olinda — chama no WhatsApp, link na bio.
 ```
 
+**CTA varia por tipo de post — três níveis, não confundir:**
+
+1. **Post de venda/produto:** CTA de venda, `📍` + lojas + WhatsApp (padrão acima).
+2. **Card Whatsapp institucional** (datas comemorativas, ver seção própria): sem CTA nenhum, sem `📍` — só reconhecimento.
+3. **Post estático institucional/entretenimento pra compartilhamento** (ex. formato "dicionário de gíria aplicada a obra"): CTA convida a **seguir o perfil**, não é venda e não leva pra WhatsApp/loja — o objetivo é alcance/novo seguidor, não conversão direta.
+
 ## Ganchos aprovados (replicar o padrão)
 
 - **Alerta de prevenção:** "Infiltração não avisa. Ela só aparece quando já custou caro."
@@ -71,6 +77,8 @@ Vem ser atendido por quem entende sua rotina.
 - Itens visuais sugeridos pelo usuário (ex: "banquinho, caixinha, mesinha") são direção de arte — não repetir na legenda
 - Em posts emocionais e datas comemorativas, não citar o produto/serviço diretamente — a marca entra como suporte ("a Ferreira Pinto cuida da parte técnica"), não como oferta explícita
 - Trocadilho "pau pra toda obra" aprovado: duplo sentido (expressão popular + pau = madeira) — recurso válido pra copies de datas especiais
+- Formato aprovado pra post estático institucional/entretenimento: dicionário/glossário de gíria regional **real e verificada** (ex. bote fé, cabuloso, taca, dispense) "traduzida" pro universo de obra/reforma. Alto potencial de compartilhamento (convida a marcar amigo), não precisa citar produto. CTA desse formato = seguir o perfil, ver "CTA por tipo de post"
+- Evitar puxar de fenômenos virais controversos ligados à periferia/favela (ex. "Cultura Ratosa") como referência de tom, mesmo sendo atual e local — não combina com o posicionamento institucional/tradicional da FP, mesmo em conteúdo de humor
 
 ## Checklist antes de entregar copy
 
