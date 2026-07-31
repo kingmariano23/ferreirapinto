@@ -60,3 +60,9 @@ o Reels 3 (Black Friday) é o mais fácil de girar pra institucional.
 - Momento de comentário no primeiro terço, não no fim.
 - CTA com formulação diferente em cada um, sem repetir "7 lojas em Recife e
   Olinda" na mesma frase.
+- **CTA por nível.** Sete dos oito são de venda (`📍` + lojas + WhatsApp).
+  O Reels 7 é entretenimento institucional pra compartilhamento, então o CTA
+  dele convida a **seguir o perfil** — sem `📍`, sem WhatsApp. Os Reels 5 e 8
+  ficaram no nível de venda porque ambos terminam num argumento comercial
+  (variedade num endereço só, e voltar à loja pra compra pequena), mas se o
+  cliente quiser tratá-los como alcance puro, é só trocar o último bloco.

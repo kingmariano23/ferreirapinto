@@ -59,7 +59,7 @@ acerta **na hora**, sem pensar, e dá de ombros.
 **Take 7 — 22 a 26 s**
 Wide da equipe no corredor. CTA leve.
 `TEXTO: quantos você acertou?`
-`TEXTO: WhatsApp no link da bio`
+`TEXTO: segue pra próxima rodada`
 
 ---
 
@@ -93,15 +93,18 @@ Tem barulho que só quem trabalha com material reconhece de primeira
 
 Chapa encostando no chão tem um som, trena voltando de uma vez tem outro, e quem passa o dia nisso identifica sem pensar
 
-Diz nos comentários quantos você acertou de olho fechado
+Diz nos comentários quantos você acertou de olho fechado, e marca aquele amigo que erraria todos
 
-E se acertou todos, você já sabe onde te atendem sem precisar explicar o que quer
-📍 7 unidades em Recife e Olinda, WhatsApp no link da bio
+Segue o perfil que ainda tem muito som de loja pra sair por aqui
 
 ---
 
 ## Notas de execução
 
+- ⚠️ **CTA é de seguir o perfil, não de venda.** Esse é o Reels de
+  entretenimento institucional do lote: o objetivo é alcance e seguidor novo,
+  não conversão. Sem `📍`, sem WhatsApp, sem endereço de loja. Se alguém pedir
+  pra "colocar o CTA padrão", é justamente o que não pode.
 - **Gravar os sons antes das reações.** Se a pessoa vir o objeto sendo gravado,
   a reação morre. Quem adivinha não pode ter visto nada.
 - **Escolher sons distintos entre si.** Se dois sons forem parecidos, a piada
