@@ -80,6 +80,40 @@ Vem ser atendido por quem entende sua rotina.
 - Formato aprovado pra post estático institucional/entretenimento: dicionário/glossário de gíria regional **real e verificada** (ex. bote fé, cabuloso, taca, dispense) "traduzida" pro universo de obra/reforma. Alto potencial de compartilhamento (convida a marcar amigo), não precisa citar produto. CTA desse formato = seguir o perfil, ver "CTA por tipo de post"
 - Evitar puxar de fenômenos virais controversos ligados à periferia/favela (ex. "Cultura Ratosa") como referência de tom, mesmo sendo atual e local — não combina com o posicionamento institucional/tradicional da FP, mesmo em conteúdo de humor
 
+## Formato obrigatório de card de Reels no Trello (regra fixa)
+
+Referência aprovada: [card Y2BfBWza](https://trello.com/c/Y2BfBWza). São **três seções, nessa ordem, e mais nada**, separadas por `---`:
+
+```
+### Roteiro
+
+**Visual hook:** <1 ou 2 frases>
+
+<fala, em parágrafos curtos separados por linha em branco>
+
+---
+
+### Arte
+
+**Thumb:** <1 frase>
+
+**Headline:** <headline>
+
+---
+
+### Legenda
+
+<blocos da legenda>
+```
+
+- **Sem cabeçalho e sem linha de formato.** Nada de `## Reels`, duração, proporção ou fio editorial na descrição. A descrição começa direto em `### Roteiro`.
+- **Proibido bloco de Observações**, notas de execução, avisos com ⚠️, pesquisa de tendência, direção de áudio, direção de luz, checklist ou qualquer recado interno. Se algo precisar ser confirmado com a loja, vai em comentário ou em conversa, nunca na descrição.
+- **Visual hook é a primeira linha do Roteiro**, com o rótulo em negrito, antes da fala. Não é seção própria.
+- **Arte tem só duas linhas:** Thumb e Headline, ambas com rótulo em negrito. Uma frase cada.
+- **Só roteiro falado.** Nada de decupagem por take, marcação de segundo a segundo ou instrução de gravação dentro do roteiro. O roteiro é o texto que a pessoa fala.
+- **Nada de cenário pra montar** nem de item que a loja não tem. Grava-se na loja, com produto que existe no corredor. Proibido roteiro que depende de ambiente reformado, obra de cliente, móvel montado ou set encenado.
+- **Visual hook sempre de execução simples:** puxão de zoom, giro rápido, mão entrando no quadro empurrando o produto pra frente, objeto cortando a tela quase saindo do enquadramento, estouro de luz branca tipo flash, brilho na luz, elemento repetido em sequência rápida, mudança repentina de cor ou alguém fazendo algo inesperado no primeiro frame. Sem transição suave.
+
 ## Checklist antes de entregar copy
 
 - [ ] 3-4 parágrafos com linha em branco entre eles?
